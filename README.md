@@ -4,6 +4,10 @@ Typed errors and dependency-aware effects for TypeScript, without a fiber runtim
 
 One effect system: a lazy `Safe<A, E, R>`. Every question has exactly one answer.
 
+**New here?** The [tutorial](./docs/README.md) walks through it in eight chapters —
+[English](./docs/en/README.md) · [中文](./docs/zh/README.md) — every code block compiled by
+`bun run docs:check`.
+
 | Question | Answer |
 |---|---|
 | a call can throw or reject | `Safe.call(fn, mapErr?)` — sync and async alike |

@@ -23,9 +23,10 @@
 		"test": "bun test",
 		"build": "bun run scripts/build.ts",
 		"prepublishOnly": "bun run check && bun run build",
+		"docs:check": "bun run scripts/doc-check.ts",
 		"bench": "bun run bench/run.ts",
 		"bench:tax": "bun run bench/tax.ts",
-		"check": "bun run typecheck && bun run lint && bun run test"
+		"check": "bun run typecheck && bun run lint && bun run test && bun run docs:check"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.10",
