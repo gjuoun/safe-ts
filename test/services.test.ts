@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Outcome } from "../src/outcome.ts";
+import { makeRuntime } from "../src/runtime.ts";
 import { run, Safe } from "../src/safe.ts";
 import { get, override, provide } from "../src/services.ts";
 
@@ -148,6 +149,36 @@ describe("class services", () => {
 		await run(provide(program, [UserRepo, Db, Cache, Config]));
 		console.log("dispose order:", JSON.stringify(log));
 		expect(log).toEqual(["body", "UserRepo", "Db"]);
+	});
+
+	test("init receives the params", async () => {
+		class Configured {
+			constructor(readonly url: string) {}
+			static *init(params: { url: string }) {
+				return new Configured(params.url);
+			}
+		}
+		const program = Safe.try(function* () {
+			return (yield* get(Configured)).url;
+		});
+		expect(await run(provide(program, [Configured], { url: "mem://params" }))).toEqual(
+			Outcome.succeed("mem://params"),
+		);
+	});
+
+	test("a runtime passes params to every init", async () => {
+		class Configured {
+			constructor(readonly url: string) {}
+			static *init(params: { url: string }) {
+				return new Configured(params.url);
+			}
+		}
+		const runtime = makeRuntime([Configured], { url: "mem://runtime" });
+		const program = Safe.try(function* () {
+			return (yield* get(Configured)).url;
+		});
+		expect(await runtime.run(program)).toEqual(Outcome.succeed("mem://runtime"));
+		await runtime.dispose();
 	});
 
 	test("a generator dispose can get a dependency", async () => {

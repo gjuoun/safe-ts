@@ -23,11 +23,11 @@ class Logger {
 	}
 }
 
-// A value-only service: it names no deps and reads no environment.
+// A value-only service: its value is a param, never a global.
 class Config {
 	constructor(readonly dbUrl: string) {}
-	static *init() {
-		return new Config("sqlite://app.db");
+	static *init(params: { dbUrl: string }) {
+		return new Config(params.dbUrl);
 	}
 }
 
@@ -82,26 +82,22 @@ const show = <A, E>(exit: Outcome<A, E>): string => {
 	return exit._tag === "fail" ? `fail: ${JSON.stringify(exit.error)}` : exit._tag;
 };
 
-// Full wiring. The environment enters here, once — never inside a service.
+// Full wiring. The environment enters here, once, as params — never inside a
+// service, and never as a seeded instance.
 const { DB_URL } = process.env;
 console.log(
 	show(
 		await run(
-			provide(createUser("ada"), [
-				Db,
-				Mailer,
-				override(Config, new Config(DB_URL ?? "sqlite://app.db")),
-				Logger,
-			]),
+			provide(createUser("ada"), [Db, Mailer, Config, Logger], {
+				dbUrl: DB_URL ?? "sqlite://app.db",
+			}),
 		),
 	),
 );
 
 // A failing init is a typed fail — nothing else gets built.
 console.log(
-	show(
-		await run(provide(createUser("ada"), [Db, Mailer, override(Config, new Config("")), Logger])),
-	),
+	show(await run(provide(createUser("ada"), [Db, Mailer, Config, Logger], { dbUrl: "" }))),
 );
 
 // The test seam: a subclass instance stands in for Db (no init, no deps, no cleanup).
