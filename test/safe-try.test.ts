@@ -153,6 +153,20 @@ describe("Safe.try (async body)", () => {
 		expect(await run(s)).toEqual(Outcome.fail("stopped"));
 	});
 
+	// A success with no effects completes the delegation inline: no driver
+	// round-trip, no exec, no Outcome. Borrowed from neverthrow's Ok iterator.
+	test("yield* Safe.ok completes inline with its value", async () => {
+		let seen = 0;
+		const s = Safe.try(function* () {
+			const a = yield* Safe.ok(1);
+			seen = a;
+			const b = yield* Safe.ok(2);
+			return a + b;
+		});
+		expect(await run(s)).toEqual(Outcome.succeed(3));
+		expect(seen).toBe(1);
+	});
+
 	// The hot-path form: a plain `yield` hands the Safe to the driver directly,
 	// so no `yield*` delegation frame is created per step (~26 ns per yield).
 	test("a plain yield body runs the same as yield*", async () => {

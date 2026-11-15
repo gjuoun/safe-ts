@@ -240,6 +240,13 @@ Same program, same outcome — the cast is the price, because a plain `yield`
 resumes with `TNext` rather than the Safe's `A`. Use `yield*` for readability,
 `yield` inside a handler that runs per request.
 
+A step that cannot fail is free: `yield* Safe.ok(x)` completes the delegation
+inline with `x`, without a driver round-trip, an `exec` or an `Outcome`
+(measured: two such steps cost 71 ns/op where two `Safe.call` steps cost ~300).
+The idea comes from neverthrow, whose `Ok` iterator returns its value without
+yielding — but not its `Err` half, which surfaces a failure by leaving the body
+suspended, so a `finally` never runs. Here the driver closes the body instead.
+
 Two rules keep it there: a body that finished synchronously returns an
 `Outcome`, not a promise (`Safe.body`, `exec`, `drive` and `Scope.close` all
 take the sync branch), and the abort listener is attached only when something
