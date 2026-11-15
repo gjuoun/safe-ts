@@ -91,10 +91,29 @@ Runnable examples: [HTTP and DB cancellation](./examples/04-scheduler.ts) ·
 
 ## Measured
 
-Ten scenarios, both libraries building the program per call, five trials, a win only when
-the ranges do not overlap (`bun run bench`): safe-ts is ahead on fixed costs — the run
-boundary, pure steps, throw mapping, bounded fan-out — and level on per-step cost. Cold
-import 14 ms against Effect's 77 ms; 60 KB of source with no runtime dependencies.
+Twelve timed scenarios, both libraries building the program per call, five trials, a
+win only when the min–max ranges do not overlap (`bun run bench`, ns/call):
+
+| scenario | safe-ts | Effect | ratio | verdict |
+|---|---|---|---|---|
+| success | 715 | 770 | 0.93 | noise |
+| recover | 893 | 956 | 0.93 | noise |
+| earlyExit | 714 | 713 | 1.00 | noise |
+| pure10 | 734 | 893 | 0.82 | safe-ts wins |
+| chain10 | 1176 | 1414 | 0.83 | safe-ts wins |
+| chain20 | 1859 | 2230 | 0.83 | safe-ts wins |
+| thrown | 1158 | 1341 | 0.86 | noise |
+| asyncInSync | 1039 | 1056 | 0.98 | noise |
+| concurrency | 1107 | 1221 | 0.91 | noise |
+| cleanup | 946 | 1120 | 0.84 | safe-ts wins |
+| retryFlaky | 2312 | 6418 | 0.36 | safe-ts wins |
+| retry_timeout | 13473 | 9689 | 1.39 | effect wins |
+
+`timeoutBound` and `delayWait` are skipped — they sleep on a real timer, so the wall
+clock measures the sleep, not the library. safe-ts wins on fixed costs (the run
+boundary, pure steps, bounded fan-out, retries) and loses the one scenario where a
+retry has to outlive a timeout. Cold import 13 ms against Effect's 76 ms; 60 KB of
+source with no runtime dependencies.
 
 ## License
 
