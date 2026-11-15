@@ -127,9 +127,8 @@ export class Safe<A, E, R> {
 			if (!isThenable(result)) return scheduler.finish(Outcome.succeed(result as Awaited<A>));
 			// The rejection handler lives here, so this promise never rejects and
 			// `exec` can hand it straight to the run (see `sealed`).
-			return scheduler.settlePending(result as PromiseLike<Awaited<A>>).then(
-				(s) => fromSettled(s, mapErr),
-				(defect) => Outcome.die(defect),
+			return scheduler.settlePending(result as PromiseLike<Awaited<A>>, (s) =>
+				fromSettled(s, mapErr),
 			);
 		});
 		call.sealed = true;

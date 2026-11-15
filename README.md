@@ -218,11 +218,11 @@ server actually has). Bun 1.3.14, arm64, 200,000 iterations, best of 5:
 
 | scenario | safe-ts | Effect (`runSync`) | neverthrow |
 |---|---|---|---|
-| two calls, success | 245 ns/op | 363 ns/op | 359 ns/op |
-| recovered `not_found` | 327 ns/op | 412 ns/op | 388 ns/op |
-| ten `Safe.call` steps | 722 ns/op | 768 ns/op | 531 ns/op |
-| ten `Safe.ok` steps | 283 ns/op | 511 ns/op | 447 ns/op |
-| throw → typed error | 725 ns/op | 874 ns/op | 777 ns/op |
+| two calls, success | 248 ns/op | 363 ns/op | 400 ns/op |
+| recovered `not_found` | 330 ns/op | 399 ns/op | 362 ns/op |
+| ten `Safe.call` steps | 743 ns/op | 785 ns/op | 545 ns/op |
+| ten `Safe.ok` steps | 292 ns/op | 507 ns/op | 454 ns/op |
+| throw → typed error | 721 ns/op | 805 ns/op | 836 ns/op |
 
 An async step does **not** need an `async function*` body. A sync generator holding
 `yield* Safe.call(async () => …)` runs the same program at **548 ns/op**, where the
