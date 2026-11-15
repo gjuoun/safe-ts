@@ -1,10 +1,10 @@
-// The safe-ts lane: ten scenarios, each built per call (the like-for-like model —
-// Effect's gen is lazy too, so both lanes pay construction).
-import { Errors, Runtime, Safe } from "../../src/index.ts";
+// The safe-ts lane: fourteen scenarios, each built per call (the like-for-like
+// model — Effect's gen is lazy too, so both lanes pay construction).
+import { Errors, Pipe, Runtime, Safe } from "../../src/index.ts";
 
 const e = Errors.define({
 	bad_json: () => ({ message: "bad json" }),
-	not_found: (id: string) => ({ message: "no " + id, id }),
+	not_found: (id: string) => ({ message: `no ${id}`, id }),
 	boom: () => ({ message: "boom" }),
 });
 
@@ -32,20 +32,30 @@ const asyncLookup = () =>
 		},
 		() => e.boom(),
 	);
+let flakyN = 0;
+const flaky = () =>
+	Safe.call(
+		() => {
+			flakyN += 1;
+			if (flakyN % 3 !== 0) throw new Error("not yet");
+			return "ok";
+		},
+		() => e.boom(),
+	);
 
 export const build = {
 	success: () =>
 		Safe.try(function* () {
 			const o = yield* parse('{"name":"demo"}');
 			const n = yield* lookup("u1");
-			return n + ":" + String(o.name);
+			return `${n}:${String(o.name)}`;
 		}),
 	recover: () =>
 		Safe.try(function* () {
 			const o = yield* parse('{"name":"demo"}');
 			const n = yield* lookup("u2");
-			return n + ":" + String(o.name);
-		}).catchTag("not_found", (p) => Safe.ok("default:" + p.id)),
+			return `${n}:${String(o.name)}`;
+		}).pipe(Pipe.catchTag("not_found", (p: { id: string }) => Safe.ok(`default:${p.id}`))),
 	earlyExit: () =>
 		Safe.try(function* () {
 			yield* step(1);
@@ -79,7 +89,7 @@ export const build = {
 		Safe.try(function* () {
 			const o = yield* parse('{"name":"demo"}');
 			const n = yield* asyncLookup();
-			return n + ":" + String(o.name);
+			return `${n}:${String(o.name)}`;
 		}),
 	concurrency: () =>
 		Safe.try(function* () {
@@ -88,13 +98,28 @@ export const build = {
 		}),
 	cleanup: () =>
 		Safe.try(function* () {
-			const handle = yield* Safe.scoped(
-				Safe.acquireRelease(
-					Safe.call(() => ({ open: true })),
-					() => {},
-				),
+			const handle = yield* Safe.call(() => ({ open: true })).pipe(
+				Pipe.acquireRelease(() => {}),
+				Pipe.scoped,
 			);
 			return handle.open ? "open" : "closed";
+		}),
+	timeoutBound: () =>
+		Safe.try(function* () {
+			return yield* Safe.delay(50).pipe(Pipe.timeout(1_000));
+		}),
+	delayWait: () =>
+		Safe.try(function* () {
+			yield* Safe.delay(1);
+			return "done";
+		}),
+	retryFlaky: () =>
+		Safe.try(function* () {
+			return yield* flaky().pipe(Pipe.retry({ attempts: 3 }));
+		}),
+	retry_timeout: () =>
+		Safe.try(function* () {
+			return yield* flaky().pipe(Pipe.timeout(1_000), Pipe.retry({ attempts: 3 }));
 		}),
 } as const;
 
@@ -102,4 +127,4 @@ export type Name = keyof typeof build;
 export const names = Object.keys(build) as Name[];
 export const run = (n: Name) => Runtime.run(build[n]());
 export const show = (o: { _tag: string; value?: unknown }) =>
-	o._tag === "success" ? "ok:" + String(o.value) : "fail";
+	o._tag === "success" ? `ok:${String(o.value)}` : "fail";

@@ -1,5 +1,6 @@
-// The Effect lane: the same ten scenarios, built per call, measured through its
-// own Exit entry (runPromiseExit / runSyncExit) — not wrapped in Effect.result.
+// The Effect lane: the same fourteen scenarios, built per call, measured
+// through its own Exit entry (runPromiseExit / runSyncExit) — not wrapped in
+// Effect.result.
 import { Effect } from "effect";
 
 const STORE: Record<string, string> = { u1: "ada" };
@@ -16,19 +17,29 @@ const boom = () =>
 	});
 const asyncLookup = () =>
 	Effect.tryPromise({ try: () => Promise.resolve(STORE.u1), catch: () => "boom" });
+let flakyN = 0;
+const flaky = () =>
+	Effect.try({
+		try: () => {
+			flakyN += 1;
+			if (flakyN % 3 !== 0) throw new Error("not yet");
+			return "ok";
+		},
+		catch: () => "boom",
+	});
 
 export const build = {
 	success: () =>
 		Effect.gen(function* () {
 			const o = yield* parse('{"name":"demo"}');
 			const n = yield* lookup("u1");
-			return n + ":" + String(o.name);
+			return `${n}:${String(o.name)}`;
 		}),
 	recover: () =>
 		Effect.gen(function* () {
 			const o = yield* parse('{"name":"demo"}');
 			const n = yield* lookup("u2");
-			return n + ":" + String(o.name);
+			return `${n}:${String(o.name)}`;
 		}).pipe(
 			Effect.catch((x: string) =>
 				x === "not_found" ? Effect.succeed("default:u2") : Effect.fail(x),
@@ -67,7 +78,7 @@ export const build = {
 		Effect.gen(function* () {
 			const o = yield* parse('{"name":"demo"}');
 			const n = yield* asyncLookup();
-			return n + ":" + String(o.name);
+			return `${n}:${String(o.name)}`;
 		}),
 	concurrency: () =>
 		Effect.gen(function* () {
@@ -84,6 +95,14 @@ export const build = {
 			)) as { open: boolean };
 			return handle.open ? "open" : "closed";
 		}),
+	timeoutBound: () => Effect.sleep("50 millis").pipe(Effect.timeout("1 seconds")),
+	delayWait: () =>
+		Effect.gen(function* () {
+			yield* Effect.sleep("1 millis");
+			return "done";
+		}),
+	retryFlaky: () => flaky().pipe(Effect.retry({ times: 2 })),
+	retry_timeout: () => flaky().pipe(Effect.timeout("1 seconds"), Effect.retry({ times: 2 })),
 } as const;
 
 export type Name = keyof typeof build;
@@ -96,4 +115,4 @@ const toOutcome = (x: Exit) =>
 export const run = async (n: Name) => toOutcome((await Effect.runPromiseExit(build[n]())) as Exit);
 export const runSync = (n: Name) => toOutcome(Effect.runSyncExit(build[n]()) as Exit);
 export const show = (o: { _tag: string; value?: unknown }) =>
-	o._tag === "success" ? "ok:" + String(o.value) : "fail";
+	o._tag === "success" ? `ok:${String(o.value)}` : "fail";

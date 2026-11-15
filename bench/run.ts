@@ -86,10 +86,8 @@ for (const name of SCENARIOS) {
 	if (!overlap && ratio > 1) losses++;
 	console.log(
 		name.padEnd(13) +
-			(fmt(sm) + " [" + fmt(Math.min(...safe)) + "-" + fmt(Math.max(...safe)) + "]").padEnd(30) +
-			(fmt(em) + " [" + fmt(Math.min(...effect)) + "-" + fmt(Math.max(...effect)) + "]").padEnd(
-				30,
-			) +
+			`${fmt(sm)} [${fmt(Math.min(...safe))}-${fmt(Math.max(...safe))}]`.padEnd(30) +
+			`${fmt(em)} [${fmt(Math.min(...effect))}-${fmt(Math.max(...effect))}]`.padEnd(30) +
 			ratio.toFixed(2).padStart(6) +
 			"   " +
 			verdict,
