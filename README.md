@@ -4,12 +4,16 @@ Typed errors and cancellable effects for TypeScript — without a fiber runtime.
 
 📖 [Docs](./docs/README.md) — [English](./docs/en/README.md) · [中文](./docs/zh/README.md) ·
 [examples](./examples) · [benchmark](./benchmark)
-<summary><b>Quick start</b> — install, one Safe, what it gives you</summary>
+
+## Install
 
 ```sh
 npm install @gjuoun/safe-ts   # Node ≥ 20.3
 bun add @gjuoun/safe-ts       # Bun
 ```
+
+<details>
+<summary><b>Quick start</b> — install, one Safe, what it gives you</summary>
 
 ```ts
 import { Errors, Runtime, Safe } from "@gjuoun/safe-ts";
@@ -48,8 +52,6 @@ await Runtime.run(getUser("u1"));
   throws and never rejects.
 - **Cancellation, scopes, `timeout`, `retry`, `all`, `race`, `forEach`** — built from
   `exec` plus a signal, a timer or a batch. No fiber, no scheduler loop.
-
-ESM only, zero runtime dependencies, one bundle and one `.d.ts`. Runs on Node ≥ 20.3 and Bun — `npm install` or `bun add` both work.
 
 </details>
 
