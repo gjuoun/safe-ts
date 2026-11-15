@@ -1,0 +1,132 @@
+name: release
+
+# Manual release: gates, bump the version on main, publish to npm, tag, and
+# create a GitHub release that lists the PRs merged since the previous tag.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump (semver level)"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write # npm provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "Release must run from main, got $REF" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history and tags for the release notes
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - run: bun install --frozen-lockfile
+
+      - name: Gates
+        run: |
+          bun run check
+          bun run build
+
+      - name: Collect merged PRs since last tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          last=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+          range="${last:+$last..}HEAD"
+          echo "Release notes range: $range"
+
+          prs="$RUNNER_TEMP/prs.md"
+          direct="$RUNNER_TEMP/direct.md"
+          : > "$prs"
+          : > "$direct"
+
+          # First-parent history covers PR merges (merge or squash) and direct pushes.
+          for sha in $(git rev-list --first-parent "$range"); do
+            line=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/pulls" \
+              --jq '[.[] | select(.merged_at != null)][0] | select(. != null) | "- #\(.number) \(.title) (@\(.user.login))"')
+            if [ -n "$line" ]; then
+              echo "$line" >> "$prs"
+            else
+              echo "- $(git log -1 --format='%h %s' "$sha")" >> "$direct"
+            fi
+          done
+
+          {
+            echo "## Pull requests"
+            echo
+            if [ -s "$prs" ]; then cat "$prs"; else echo "- No pull requests."; fi
+            if [ -s "$direct" ]; then
+              echo
+              echo "## Direct commits"
+              echo
+              cat "$direct"
+            fi
+          } > "$RUNNER_TEMP/release-notes.md"
+          cat "$RUNNER_TEMP/release-notes.md"
+
+      - name: Bump version and tag
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          npm version "$BUMP" --no-git-tag-version >/dev/null
+          version=$(node -p "require('./package.json').version")
+          tag="v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "Tag $tag already exists" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore(release): $tag [skip ci]"
+          git tag -a "$tag" -m "$tag"
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Publish to npm
+        # Trusted publishing: npm exchanges this job's OIDC token for a publish
+        # credential, so no NPM_TOKEN is used. Gates and build already ran above;
+        # --ignore-scripts skips the prepublishOnly hook so the build is not repeated.
+        run: npm publish --provenance --ignore-scripts
+
+      - name: Push commit and tag
+        run: |
+          git push origin HEAD:main
+          git push origin "$TAG"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
