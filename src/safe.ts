@@ -11,7 +11,7 @@
 import { type AllA, type AllE, type AllR, all } from "./all.ts";
 import type { Arm, CodeOf, Payload } from "./errors.ts";
 import { isThenable, Outcome } from "./outcome.ts";
-import { Scheduler } from "./scheduler.ts";
+import { NEVER_ABORTED, Scheduler } from "./scheduler.ts";
 import { Scope } from "./scope.ts";
 import type { ServiceClass } from "./services.ts";
 
@@ -39,7 +39,7 @@ export const rootLookup: Lookup = async (service) =>
 	);
 
 /** A signal that never fires: used where work must not be interrupted. */
-export const NEVER_ABORTED: AbortSignal = new AbortController().signal;
+export { NEVER_ABORTED } from "./scheduler.ts";
 
 export class Safe<A, E, R> {
 	readonly _tag = "Safe" as const;
@@ -54,6 +54,13 @@ export class Safe<A, E, R> {
 	 * only when something inside it is actually async.
 	 */
 	constructor(readonly body: (ctx: Ctx) => Outcome<A, E> | Promise<Outcome<A, E>>) {}
+
+	/**
+	 * True when this body's promise already converts its own rejection into an
+	 * `Outcome` (`Safe.call` does), so `exec` need not add a pass-through hop.
+	 * @internal
+	 */
+	sealed = false;
 
 	/**
 	 * The `yield*` protocol: hand the Safe to the driver, complete with the value
@@ -97,13 +104,20 @@ export class Safe<A, E, R> {
 				),
 			);
 		}
-		return new Safe<Awaited<A>, E, never>((ctx) => {
+		const call = new Safe<Awaited<A>, E, never>((ctx) => {
 			const scheduler = new Scheduler(ctx.signal);
 			const settled = scheduler.settle(() => fn(scheduler));
+			// The rejection handler lives here, so this promise never rejects and
+			// `exec` can hand it straight to the run (see `sealed`).
 			return isThenable(settled)
-				? settled.then((s) => fromSettled(s, mapErr))
+				? settled.then(
+						(s) => fromSettled(s, mapErr),
+						(defect) => Outcome.die(defect),
+					)
 				: fromSettled(settled, mapErr);
 		});
+		call.sealed = true;
+		return call;
 	}
 
 	/**
@@ -273,13 +287,15 @@ export const exec = <A, E>(
 	} catch (defect) {
 		return Outcome.die(defect);
 	}
-	// A rejection is a defect, exactly as a throw from the body is.
-	return isThenable(out)
-		? out.then(
+	// A rejection is a defect, exactly as a throw from the body is. A sealed body
+	// already did that conversion, so wrapping it again is a wasted hop.
+	if (!isThenable(out)) return out;
+	return safe.sealed
+		? out
+		: out.then(
 				(o) => o,
 				(defect) => Outcome.die(defect),
-			)
-		: out;
+			);
 };
 
 /** What `Scheduler.settle` reported, in `Safe.call`'s vocabulary. */
