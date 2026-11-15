@@ -1,7 +1,23 @@
 # 7 · Concurrency, timeouts, retries, cancellation
 
-Every combinator here is built from `exec` plus a signal, a timer or a batch. There is
-no fiber, no scheduler loop — the platform's event loop does the scheduling.
+Every wrapper here is a `Safe → Safe` factory — `exec` plus a signal, a timer
+or a lane, never a fiber — and it meets a Safe inside `pipe`:
+
+```ts
+import { Pipe, Safe } from "safe-ts";
+
+const fetch: Safe<number, string, never> = Safe.ok(1);
+const policy = { attempts: 3, delayMs: 10 };
+
+// timeout bounds the whole retry loop
+Safe.pipe(fetch, [Pipe.retry(policy), Pipe.timeout(30_000)]);
+
+// timeout bounds each attempt; the typed failure is what the policy sees
+Safe.pipe(fetch, [Pipe.timeout(2_000, () => "timeout" as const), Pipe.retry(policy)]);
+```
+
+`safe.pipe(op1, op2)` is the variadic twin of `Safe.pipe(safe, [ops])` — the
+same fold for the common case. Both are lazy: nothing runs until `Runtime.run`.
 
 ## `Safe.all` — fan out, keep order
 
@@ -15,6 +31,8 @@ console.log(exit); // { _tag: "success", value: ["doc:a", "doc:b"] }
 ```
 
 The first `fail` or `die` aborts the siblings and becomes the result.
+`Safe.allSettled` is its sibling that never fails: it returns every `Outcome`
+in input order, so a caller reads `_tag` per element instead.
 
 ## `Safe.race` — first to settle
 
@@ -30,7 +48,9 @@ const fast = Safe.call(async () => "fast");
 console.log(await Runtime.run(Safe.race([slow, fast]))); // { _tag: "success", value: "fast" }
 ```
 
-The losers are aborted; a loser that ignores its signal still runs to completion.
+The losers are aborted; a loser that ignores its signal still runs to
+completion. `{ awaitLosers: true }` makes the winner return only after every
+loser has actually settled — "the run returned" means "the work stopped".
 
 ## `Safe.forEach` — bounded fan-out
 
@@ -43,27 +63,33 @@ const exit = await Runtime.run(Safe.forEach([1, 2, 3], work, { concurrency: 2 })
 console.log(exit); // { _tag: "success", value: [2, 4, 6] }
 ```
 
+At `concurrency: n` a sliding window keeps n lanes in flight — a lane starts the
+next item as soon as it finishes, so one slow item never blocks the wave behind
+it. The first non-success aborts the rest; with no limit it is `Safe.all`.
+
 ## Timeouts
 
 ```ts
-import { Outcome, Runtime, Safe } from "safe-ts";
+import { Outcome, Pipe, Runtime, Safe } from "safe-ts";
 
 const slow = Safe.call(async (s) => {
   await s.sleep(500);
   return "late";
 });
 
-console.log((await Runtime.run(Safe.timeout(slow, 10)))._tag); // "interrupt"
-const mapped = await Runtime.run(Safe.timeout(slow, 10, () => "too_slow" as const));
+console.log((await Runtime.run(slow.pipe(Pipe.timeout(10))))._tag); // "interrupt"
+const mapped = await Runtime.run(slow.pipe(Pipe.timeout(10, () => "too_slow" as const)));
 console.log(Outcome.isFail(mapped) ? mapped.error : mapped._tag); // "too_slow"
 ```
 
-A timeout is an `interrupt` — the same arm a boundary abort produces — unless you map it.
+A timeout is an `interrupt` — the same arm a boundary abort produces — unless
+you map it. The deadline waits on the run's clock, so `Clocks.manual()`
+virtualises it.
 
-## Retries
+## Retries, and the Policy that drives them
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "safe-ts";
 
 let attempts = 0;
 const flaky = Safe.call(
@@ -75,21 +101,42 @@ const flaky = Safe.call(
   () => "unavailable" as const,
 );
 
-console.log(await Runtime.run(Safe.retry(flaky, { attempts: 3, delayMs: 5 })));
+console.log(await Runtime.run(flaky.pipe(Pipe.retry({ attempts: 3, delayMs: 5 }))));
 // { _tag: "success", value: 3 }
 ```
 
-Only a typed `fail` is retried: a defect is a bug and an interrupt means someone
-asked to stop. Each attempt gets its own scope, so a failed attempt's resources are
-released before the next one starts.
+A policy is a value — `(state) => ms | undefined` — assembled in the
+`Policy` namespace the same way wrappers assemble in `Safe.pipe`:
 
-## Cancellation
+```ts
+import { Policy } from "safe-ts";
+
+// exponential backoff capped at 10 s per step — min keeps the shorter delay
+Policy.min([Policy.exponential(250), Policy.spaced(10_000)]);
+
+// exponential, jittered, hard stop after 6 attempts — one list, no nesting
+Policy.pipe(Policy.exponential(250), [
+  Policy.modifyDelay((d) => d * 0.8 + Math.random() * 0.4 * d),
+  Policy.while((s) => s.attempt <= 6),
+]);
+```
+
+Two rules keep the algebra honest: **gates go in `max`, caps go in `min`** —
+`min` continues while any branch continues, so a gate there is silently
+ignored — and `while`/`modifyDelay` are transformers, not policies, so a bare
+one fed to `retry` is a compile error.
+
+Only a typed `fail` is retried: a defect is a bug and an interrupt means
+someone asked to stop. Each attempt gets its own scope, so a failed attempt's
+resources are released before the next one starts — ahead of Effect here.
+
+## Cancellation and interruptibility
 
 ```ts
 import { Runtime, Safe } from "safe-ts";
 
 const program = Safe.try(function* () {
-  yield* Safe.sleep(500);
+  yield* Safe.delay(500);
   return "never";
 });
 
@@ -97,6 +144,25 @@ const exit = await Runtime.run(program, { signal: AbortSignal.timeout(10) });
 console.log(exit._tag); // "interrupt"
 ```
 
-Inside a callback the `Scheduler` is how you cooperate: `s.sleep(ms)` waits on the
-run's signal, `s.onCancel(fn)` registers what should stop, `s.signal` goes to APIs
-that take one.
+Inside a callback the `Scheduler` is how you cooperate: `s.sleep(ms)` waits on
+the run's signal, `s.onCancel(fn)` registers what should stop, `s.signal` goes
+to APIs that take one, `s.now()` reads the run's clock.
+
+`uninterruptible` and `interruptible` are the region combinators —
+combinator constants, no parens — for masking a deadline and opting a region
+back in:
+
+```ts
+import { Pipe, Safe } from "safe-ts";
+
+declare const critical: Safe<number, never, never>;
+declare const acquire: Safe<{ close(): void }, never, never>;
+declare const close: (r: { close(): void }) => void;
+
+// The region cannot be cut; the deadline is observed at the next step.
+Safe.pipe(critical, [Pipe.uninterruptible]);
+
+// Inside a masked region, `interruptible` restores the real signal —
+// `acquireRelease`'s acquire is masked, so this is Effect's `restore`.
+Safe.pipe(acquire, [Pipe.interruptible, Pipe.acquireRelease(close)]);
+```

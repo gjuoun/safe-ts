@@ -1,15 +1,17 @@
 # 6 · Cleanup that always runs
 
-`Safe.acquireRelease` pairs a resource with its release. The release runs on
-**every** exit: success, fail, die and interrupt.
+`acquireRelease` pairs a resource with its release. The release runs on
+**every** exit: success, fail, die and interrupt. It is a `Safe → Safe`
+factory — it wraps the Safe inside `pipe`, like every wrapper.
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "safe-ts";
 
 const openDb = () =>
-  Safe.acquireRelease(
-    Safe.call(() => ({ open: true })),
-    (_db, exit) => console.log(`release after ${exit._tag}`),
+  Safe.call(() => ({ open: true })).pipe(
+    Pipe.acquireRelease((_db: { open: boolean }, exit) =>
+      console.log(`release after ${exit._tag}`),
+    ),
   );
 
 const program = Safe.try(function* () {
@@ -20,17 +22,16 @@ const program = Safe.try(function* () {
 console.log((await Runtime.run(program))._tag); // release after fail, then "fail"
 ```
 
-`Safe.scoped` gives that work its own scope, which closes as soon as it exits:
+`scoped` gives that work its own scope, which closes as soon as it exits —
+it is a combinator constant, so it pipes without parens:
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "safe-ts";
 
-const work = Safe.scoped(
-  Safe.try(function* () {
-    yield* Safe.acquireRelease(Safe.ok("conn"), () => console.log("closed"));
-    return "done";
-  }),
-);
+const work = Safe.try(function* () {
+  yield* Safe.ok("conn").pipe(Pipe.acquireRelease(() => console.log("closed")));
+  return "done";
+}).pipe(Pipe.scoped);
 
 console.log(await Runtime.run(work)); // closed, then success
 ```
@@ -38,9 +39,9 @@ console.log(await Runtime.run(work)); // closed, then success
 ## `ensuring`: cleanup without a resource
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "safe-ts";
 
-const timed = Safe.ensuring(Safe.ok(1), (exit) => console.log(`always: ${exit._tag}`));
+const timed = Safe.ok(1).pipe(Pipe.ensuring((exit) => console.log(`always: ${exit._tag}`)));
 console.log(await Runtime.run(timed)); // always: success, then success
 ```
 
@@ -52,15 +53,13 @@ console.log(await Runtime.run(timed)); // always: success, then success
 - If the run is aborted, the release still runs — that is the point of registering it.
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "safe-ts";
 
-const slow = Safe.scoped(
-  Safe.try(function* () {
-    yield* Safe.acquireRelease(Safe.ok("conn"), () => console.log("closed"));
-    yield* Safe.sleep(500);
-    return "never";
-  }),
-);
+const slow = Safe.try(function* () {
+  yield* Safe.ok("conn").pipe(Pipe.acquireRelease(() => console.log("closed")));
+  yield* Safe.delay(500);
+  return "never";
+}).pipe(Pipe.scoped);
 
 const exit = await Runtime.run(slow, { signal: AbortSignal.timeout(10) });
 console.log(exit._tag); // "interrupt", and "closed" was printed

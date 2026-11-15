@@ -36,7 +36,7 @@ console.log(await Runtime.run(load("u2")));
 `catchTag` matches one key and hands you its payload; every other arm passes through.
 
 ```ts
-import { Errors, Runtime, Safe } from "safe-ts";
+import { Errors, Pipe, Runtime, Safe } from "safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ message: `no user ${id}`, id }),
@@ -49,7 +49,11 @@ const load = (id: string) =>
     return { name: "ada" };
   });
 
-const tolerant = load("u2").catchTag("not_found", (payload) => Safe.ok({ name: `guest-${payload.id}` }));
+const tolerant = load("u2").pipe(
+  Pipe.catchTag("not_found", (payload: { id: string }) =>
+    Safe.ok({ name: `guest-${payload.id}` }),
+  ),
+);
 
 console.log(await Runtime.run(tolerant));
 // { _tag: "success", value: { name: "guest-u2" } }

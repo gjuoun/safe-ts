@@ -1,7 +1,23 @@
 # 7 · 并发、超时、重试、取消
 
-这里的每个组合子都由 `exec` 加一个 signal、一个定时器或一批任务构成。没有 fiber、没有
-调度循环 —— 调度交给平台的事件循环。
+这里的每个包装器都是 `Safe → Safe` 工厂 —— `exec` 加一个 signal、一个定时器或
+一条车道，没有 fiber —— 它们在 `pipe` 里与 Safe 相遇：
+
+```ts
+import { Pipe, Safe } from "safe-ts";
+
+const fetch: Safe<number, string, never> = Safe.ok(1);
+const policy = { attempts: 3, delayMs: 10 };
+
+// timeout 包住整个重试循环
+Safe.pipe(fetch, [Pipe.retry(policy), Pipe.timeout(30_000)]);
+
+// timeout 包住每一次尝试；策略看到的是那个 typed fail
+Safe.pipe(fetch, [Pipe.timeout(2_000, () => "timeout" as const), Pipe.retry(policy)]);
+```
+
+`safe.pipe(op1, op2)` 是 `Safe.pipe(safe, [ops])` 的变参孪生 —— 同一个 fold，
+用于常见情形。两者都是惰性的：`Runtime.run` 之前什么都不会跑。
 
 ## `Safe.all` —— 并发、保序
 
@@ -14,7 +30,8 @@ const exit = await Runtime.run(Safe.all([fetchDoc("a"), fetchDoc("b")]));
 console.log(exit); // { _tag: "success", value: ["doc:a", "doc:b"] }
 ```
 
-第一个 `fail` 或 `die` 会中断兄弟任务，并成为结果。
+第一个 `fail` 或 `die` 会中断兄弟任务，并成为结果。`Safe.allSettled` 是它
+永不失败的兄弟：它按输入顺序返回每一个 `Outcome`，由调用方逐个读 `_tag`。
 
 ## `Safe.race` —— 谁先结束用谁
 
@@ -30,7 +47,8 @@ const fast = Safe.call(async () => "fast");
 console.log(await Runtime.run(Safe.race([slow, fast]))); // { _tag: "success", value: "fast" }
 ```
 
-输家会被中断；忽略 signal 的输家仍会跑完。
+输家会被中断；忽略 signal 的输家仍会跑完。`{ awaitLosers: true }` 让赢家只在
+所有输家真正结束后才返回 —— "run 返回了" 意味着 "工作停了"。
 
 ## `Safe.forEach` —— 有上限的并发
 
@@ -43,27 +61,32 @@ const exit = await Runtime.run(Safe.forEach([1, 2, 3], work, { concurrency: 2 })
 console.log(exit); // { _tag: "success", value: [2, 4, 6] }
 ```
 
+`concurrency: n` 时一个滑动窗口保持 n 条车道在飞 —— 一条车道一结束就拿起下一个
+元素，单个慢元素不再拖住后面的波次。第一个非成功结果中断其余；不设上限时退化为
+`Safe.all`。
+
 ## 超时
 
 ```ts
-import { Outcome, Runtime, Safe } from "safe-ts";
+import { Outcome, Pipe, Runtime, Safe } from "safe-ts";
 
 const slow = Safe.call(async (s) => {
   await s.sleep(500);
   return "late";
 });
 
-console.log((await Runtime.run(Safe.timeout(slow, 10)))._tag); // "interrupt"
-const mapped = await Runtime.run(Safe.timeout(slow, 10, () => "too_slow" as const));
+console.log((await Runtime.run(slow.pipe(Pipe.timeout(10))))._tag); // "interrupt"
+const mapped = await Runtime.run(slow.pipe(Pipe.timeout(10, () => "too_slow" as const)));
 console.log(Outcome.isFail(mapped) ? mapped.error : mapped._tag); // "too_slow"
 ```
 
-超时是 `interrupt` —— 与边界中断同一个分支 —— 除非你把它映射掉。
+超时是 `interrupt` —— 与边界中断同一个分支 —— 除非你把它映射掉。deadline 在
+run 的时钟上等待，所以 `Clocks.manual()` 可以把它虚拟化。
 
-## 重试
+## 重试，以及驱动它的 Policy
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "safe-ts";
 
 let attempts = 0;
 const flaky = Safe.call(
@@ -75,20 +98,40 @@ const flaky = Safe.call(
   () => "unavailable" as const,
 );
 
-console.log(await Runtime.run(Safe.retry(flaky, { attempts: 3, delayMs: 5 })));
+console.log(await Runtime.run(flaky.pipe(Pipe.retry({ attempts: 3, delayMs: 5 }))));
 // { _tag: "success", value: 3 }
 ```
 
-只有已声明的 `fail` 会被重试：缺陷是 bug，中断表示有人要求停下。每次尝试都有自己的
-作用域，所以失败尝试的资源会在下一次开始前释放。
+策略是一个值 —— `(state) => ms | undefined` —— 在 `Policy` 命名空间里组装，
+方式和包装器在 `Safe.pipe` 里组装相同：
 
-## 取消
+```ts
+import { Policy } from "safe-ts";
+
+// 指数退避，每步封顶 10 秒 —— min 取较短的那个
+Policy.min([Policy.exponential(250), Policy.spaced(10_000)]);
+
+// 指数、加抖动、最多 6 次 —— 一个列表，不用嵌套
+Policy.pipe(Policy.exponential(250), [
+  Policy.modifyDelay((d) => d * 0.8 + Math.random() * 0.4 * d),
+  Policy.while((s) => s.attempt <= 6),
+]);
+```
+
+两条规则保住代数不咬人：**gate 放 `max`，cap 放 `min`** —— `min` 只要任何
+分支继续就继续，把 gate 放那里会被悄悄忽略 —— 而 `while`/`modifyDelay` 是变换器
+不是策略，单独喂给 `retry` 是编译错误。
+
+只有已声明的 `fail` 会被重试：缺陷是 bug，中断表示有人要求停下。每次尝试有自己的
+作用域，失败尝试的资源在下一次开始前释放 —— 这一点走在了 Effect 前面。
+
+## 取消与可中断性
 
 ```ts
 import { Runtime, Safe } from "safe-ts";
 
 const program = Safe.try(function* () {
-  yield* Safe.sleep(500);
+  yield* Safe.delay(500);
   return "never";
 });
 
@@ -97,4 +140,22 @@ console.log(exit._tag); // "interrupt"
 ```
 
 在回调内部，协作靠 `Scheduler`：`s.sleep(ms)` 等待 run 的 signal，`s.onCancel(fn)`
-登记该停止什么，`s.signal` 直接传给需要 signal 的 API。
+登记该停止什么，`s.signal` 传给需要 signal 的 API，`s.now()` 读 run 的时钟。
+
+`uninterruptible` 和 `interruptible` 是区域组合子 —— 组合子常量，不用加
+括号 —— 分别用于屏蔽 deadline 和把区域重新暴露给它：
+
+```ts
+import { Pipe, Safe } from "safe-ts";
+
+declare const critical: Safe<number, never, never>;
+declare const acquire: Safe<{ close(): void }, never, never>;
+declare const close: (r: { close(): void }) => void;
+
+// 该区域不可被切断；deadline 在下一步被观察到。
+Safe.pipe(critical, [Pipe.uninterruptible]);
+
+// 在被屏蔽的区域里，`interruptible` 还原真实 signal ——
+// `acquireRelease` 的 acquire 阶段是被屏蔽的，所以这就是 Effect 的 `restore`。
+Safe.pipe(acquire, [Pipe.interruptible, Pipe.acquireRelease(close)]);
+```
