@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const root = new URL("..", import.meta.url).pathname;
-const entry = root + "src/index.ts";
+const entry = `${root}src/index.ts`;
 const out = join(tmpdir(), "safe-ts-doc-check");
 
 await mkdir(out, { recursive: true });

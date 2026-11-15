@@ -102,7 +102,6 @@ console.log("— interrupt still releases —");
 const slowWork = Safe.try(function* () {
 	yield* open("slow-conn");
 	return yield* Safe.call(async (s) => {
-		
 		await s.sleep(500);
 		return "never";
 	});
