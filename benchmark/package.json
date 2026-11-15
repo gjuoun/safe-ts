@@ -1,0 +1,13 @@
+{
+	"name": "@gjuoun/safe-ts-benchmark",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"bench": "bun run run.ts",
+		"bench:tax": "bun run tax.ts"
+	},
+	"devDependencies": {
+		"effect": "^4.1.4"
+	}
+}

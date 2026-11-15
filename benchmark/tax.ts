@@ -1,6 +1,6 @@
 // The abstraction tax: cold import time for each library, 5 runs, median + range.
 const targets = [
-	["safe-ts", "../../src/index.ts"],
+	["safe-ts", new URL("../src/index.ts", import.meta.url).pathname],
 	["effect", "effect"],
 ] as const;
 
