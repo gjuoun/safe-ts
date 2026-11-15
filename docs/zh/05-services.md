@@ -80,7 +80,7 @@ await runtime.dispose(); // 按构建的逆序关闭每个实例
 
 ## 现成实例
 
-不是由 class 构建的值走同一条路 —— `Services.new(Class, value)`。它既是测试用的 fake，
+不是由 class 构建的值走同一条路 —— `Services.instance(Class, value)`。它既是测试用的 fake，
 也是组合根把配置传进来的方式：
 
 ```ts
@@ -98,7 +98,7 @@ const program = Safe.try(function* () {
 });
 
 const wired = Services.provide(program, [
-  Services.new(Config, new Config("postgres://real.db")),
+  Services.instance(Config, new Config("postgres://real.db")),
 ]);
 
 console.log((await Runtime.run(wired))._tag); // "success"

@@ -90,7 +90,7 @@ console.log(
 			Services.provide(createUser("ada"), [
 				Db,
 				Mailer,
-				Services.new(Config, new Config(DB_URL ?? "sqlite://app.db")),
+				Services.instance(Config, new Config(DB_URL ?? "sqlite://app.db")),
 				Logger,
 			]),
 		),
@@ -104,7 +104,7 @@ console.log(
 			Services.provide(createUser("ada"), [
 				Db,
 				Mailer,
-				Services.new(Config, new Config("")),
+				Services.instance(Config, new Config("")),
 				Logger,
 			]),
 		),
@@ -121,7 +121,7 @@ console.log(
 	show(
 		await Runtime.run(
 			Services.provide(createUser("ada"), [
-				Services.new(Db, new MemoryDb("memory://")),
+				Services.instance(Db, new MemoryDb("memory://")),
 				Mailer,
 				Logger,
 			]),

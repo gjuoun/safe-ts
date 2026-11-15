@@ -39,7 +39,7 @@ test("entry exports the namespaces and the pipe ops", () => {
 	for (const name of ["run", "make"]) {
 		expect(name in safe.Runtime).toBe(true);
 	}
-	for (const name of ["get", "provide", "new"]) {
+	for (const name of ["get", "provide", "instance"]) {
 		expect(name in safe.Services).toBe(true);
 	}
 	expect("runtime" in safe.Services).toBe(false);

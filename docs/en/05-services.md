@@ -81,7 +81,7 @@ await runtime.dispose(); // closes every instance, last-built first
 
 ## A ready instance
 
-A value that is not built by a class enters the same way — `Services.new(Class, value)`.
+A value that is not built by a class enters the same way — `Services.instance(Class, value)`.
 That is the test fake, and it is also how the composition root passes configuration in:
 
 ```ts
@@ -99,7 +99,7 @@ const program = Safe.try(function* () {
 });
 
 const wired = Services.provide(program, [
-  Services.new(Config, new Config("postgres://real.db")),
+  Services.instance(Config, new Config("postgres://real.db")),
 ]);
 
 console.log((await Runtime.run(wired))._tag); // "success"

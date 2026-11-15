@@ -6,7 +6,7 @@
 //   Safe:      ok, err, call, try, all, allSettled, race, delay, forEach, pipe
 //   Pipe:      timeout, retry, ensuring, scoped, acquireRelease, catchTag,
 //              provide, uninterruptible, interruptible — the Safe → Safe ops
-//   Services:  get, provide, new
+//   Services:  get, provide, instance
 //   Errors:    define, render
 //   Policy:    forever, spaced, exponential, min, max, while, modifyDelay, pipe
 //   Clocks:    real, manual
@@ -20,14 +20,14 @@ import { get, instance, provide } from "./services.ts";
 export const VERSION = "0.1.0";
 
 /** Services: get one, provide classes, seed a ready instance. */
-export const Services = { get, new: instance, provide };
+export const Services = { get, instance, provide };
 
 /** Error catalogs: define a set of variants, render one. */
 export const Errors = { define: defineErrors, render: renderError };
 
 /**
  * The pipe ops: every `Safe → Safe` the library ships, in one namespace —
- * `Safe.pipe(fetch, [Pipe.timeout(2_000), Pipe.retry(policy)])`. `provide` and
+ * `Safe.pipe(fetch, Pipe.timeout(2_000), Pipe.retry(policy))`. `provide` and
  * `catchTag` join them at this level: `Services.provide` is the run-boundary
  * spelling of the same idea.
  */
