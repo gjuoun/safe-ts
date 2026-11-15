@@ -218,11 +218,16 @@ server actually has). Bun 1.3.14, arm64, 200,000 iterations, best of 5:
 
 | scenario | safe-ts | Effect (`runSync`) | neverthrow |
 |---|---|---|---|
-| two calls, success | 241 ns/op | 378 ns/op | 386 ns/op |
-| recovered `not_found` | 320 ns/op | 412 ns/op | 409 ns/op |
-| ten `Safe.call` steps | 724 ns/op | 740 ns/op | 523 ns/op |
-| ten `Safe.ok` steps | 286 ns/op | 490 ns/op | 406 ns/op |
-| throw → typed error | 730 ns/op | 957 ns/op | 786 ns/op |
+| two calls, success | 245 ns/op | 363 ns/op | 359 ns/op |
+| recovered `not_found` | 327 ns/op | 412 ns/op | 388 ns/op |
+| ten `Safe.call` steps | 722 ns/op | 768 ns/op | 531 ns/op |
+| ten `Safe.ok` steps | 283 ns/op | 511 ns/op | 447 ns/op |
+| throw → typed error | 725 ns/op | 874 ns/op | 777 ns/op |
+
+An async step does **not** need an `async function*` body. A sync generator holding
+`yield* Safe.call(async () => …)` runs the same program at **548 ns/op**, where the
+`async function*` form costs **964** — an async generator turns every `next()` into a
+promise and wraps each delegation hop in an async-from-sync conversion.
 
 The harness is `bun run /tmp/jun/bench6/run.ts` — seven scenarios, three
 libraries, parity asserted first (every lane prints the same result before any
