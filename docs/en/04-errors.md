@@ -67,22 +67,25 @@ it honest, because `Safe` is covariant in `E`: produce one more variant than the
 signature names and the body stops compiling.
 
 ```ts
-import { Errors, Safe, type FailureOf } from "@gjuoun/safe-ts";
+import { Errors, Safe, type FailureMap, type FailureOf } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ status: 404, message: `no user ${id}`, id }),
 });
 
-// The single-key arm, named once. `ReturnType<typeof userError.not_found>` is the same type.
-export type UserNotFound = FailureOf<typeof userError, "not_found">;
+// A map from tag to the tagged error. Index it to keep the tag in the signature.
+export type UserErrors = FailureMap<typeof userError>;
+declare const find: (id: string) => Safe<{ name: string }, UserErrors["not_found"]>;
 
+// Or name the variant once and use the name.
+export type UserNotFound = FailureOf<typeof userError, "not_found">;
 declare const load: (id: string) => Safe<{ name: string }, UserNotFound>;
 ```
 
-`FailureOf` takes the *catalog*, not the union, so `FailureOf<typeof userError, "not_found">`
-is the tagged arm `{ not_found: { … } }` — the shape the run produces. Indexing the
-union instead (`ErrorsOf<typeof userError>["not_found"]`) gives the payload without its
-tag, which is not assignable to a `Safe` failure.
+Both spellings are the *tagged arm* `{ not_found: { … } }` — the shape a run produces.
+Indexing the union instead (`ErrorsOf<typeof userError>["not_found"]`) gives the payload
+without its tag, which is not assignable to a `Safe` failure; `FailureMap` and `FailureOf`
+both take the catalog and derive from the factory, so they cannot drift from the run.
 
 ## Rendering one for a human
 

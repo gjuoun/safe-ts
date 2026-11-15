@@ -66,21 +66,25 @@ console.log(await Runtime.run(tolerant));
 签名里没写的变体，就不再编译。
 
 ```ts
-import { Errors, Safe, type FailureOf } from "@gjuoun/safe-ts";
+import { Errors, Safe, type FailureMap, type FailureOf } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ status: 404, message: `no user ${id}`, id }),
 });
 
-// 单键的"带 tag 那一层"，只命名一次。`ReturnType<typeof userError.not_found>` 是同一个类型。
-export type UserNotFound = FailureOf<typeof userError, "not_found">;
+// tag → 带 tag 的失败。索引它，签名里就带着 tag。
+export type UserErrors = FailureMap<typeof userError>;
+declare const find: (id: string) => Safe<{ name: string }, UserErrors["not_found"]>;
 
+// 或者把变体命名一次，签名里用名字。
+export type UserNotFound = FailureOf<typeof userError, "not_found">;
 declare const load: (id: string) => Safe<{ name: string }, UserNotFound>;
 ```
 
-`FailureOf` 收的是 **catalog**，不是联合，所以 `FailureOf<typeof userError, "not_found">`
-就是带 tag 的那层 `{ not_found: { … } }` —— 运行时真正产生的形状。反过来索引联合
-（`ErrorsOf<typeof userError>["not_found"]`）只会得到不带 tag 的 payload，赋不进 `Safe` 的失败通道。
+两种写法都是带 tag 的那层 `{ not_found: { … } }` —— 运行时真正产生的形状。
+反过来索引联合（`ErrorsOf<typeof userError>["not_found"]`）只会得到不带 tag 的 payload，
+赋不进 `Safe` 的失败通道；`FailureMap` / `FailureOf` 收的都是 catalog，从工厂本身推导，
+不会跟运行时漂移。
 
 ## 渲染给人看
 

@@ -29,10 +29,19 @@ export type ErrorsOf<F extends Record<string, (...args: never[]) => unknown>> = 
 >;
 
 /**
+ * A catalog's variants as a map from tag to the tagged error: the shape you index
+ * when a signature should name the tag itself —
+ * `FailureMap<typeof userError>["not_found"]` is `{ not_found: { … } }`.
+ * Values are the factories' return types, so the map cannot drift from the run.
+ */
+export type FailureMap<C extends Record<string, (...args: never[]) => object>> = {
+	readonly [K in keyof C & string]: ReturnType<C[K]>;
+};
+
+/**
  * One variant of a catalog, named by its tag: `FailureOf<typeof userError, "not_found">`.
- * The same type as `ReturnType<typeof userError.not_found>` — this spelling is what a
- * signature reads best with, and it is how you say "this method can only fail *this* way"
- * instead of carrying the whole catalog union.
+ * The same type as `FailureMap<typeof userError>["not_found"]`, and as
+ * `ReturnType<typeof userError.not_found>` — use whichever reads best where you are.
  */
 export type FailureOf<
 	C extends Record<string, (...args: never[]) => object>,
