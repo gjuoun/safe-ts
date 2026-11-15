@@ -17,6 +17,7 @@ export const Services = { get, new: instance, provide };
 /** Error catalogs: define a set of variants, render one. */
 export const Errors = { define: defineErrors, render: renderError };
 
+export { type ForEachOptions, type RetryOptions, TIMEOUT } from "./combinators.ts";
 export type {
 	Arm,
 	CodeOf,

@@ -191,9 +191,30 @@ A throw anywhere in user code — a `Safe.try` body, a service `init`, an unmapp
 - `Safe.all([...])` runs concurrently. The first `fail` or `die` aborts the others.
 - `Safe.acquireRelease` and `Safe.scoped` register cleanup. Releases run last-in, first-out on success, fail, die and interrupt.
 
+## Scheduling: timeout, retry, forEach
+
+Three combinators, none of which needs a runtime — each is `exec` plus a signal, a
+timer or a batch:
+
+```ts
+Safe.timeout(safe, ms)                         // a timeout arrives as an interrupt
+Safe.timeout(safe, ms, () => "too_slow")       // …or as a typed failure
+Safe.retry(safe, { attempts: 3, delayMs: 50 }) // retries a fail; never a die or an interrupt
+Safe.forEach(items, (x) => work(x), { concurrency: 4 })
+```
+
+- `retry` gives each attempt its own scope, so a failed attempt's resources are
+  released before the next one starts.
+- `forEach` without a limit runs everything at once (`Safe.all`); with one it runs
+  sequential batches, so a failure stops every later batch.
+- A timeout interrupts at the next suspension point. A body that is entirely
+  synchronous cannot be interrupted mid-flight — the same rule the run boundary follows.
+
 ## Not included
 
-Fibers, `fork`/`join`, retry and schedule operators, a `timeout` operator (pass `AbortSignal.timeout(ms)` to `Runtime.run`), decorators or a DI container, streams, schemas and tracing.
+Fibers, `fork`/`join`, priorities or a yield policy — the pieces that would require
+owning a scheduling loop, which is what Effect's runtime is. Decorators or a DI
+container, streams, schemas and tracing.
 
 Also deliberately absent: a second effect type, a second boundary, and a second outcome type. The eager `Result` layer — its combinators, its two boundary adapters and its standalone `catchTag` — is gone, along with the `Safe` constructors that duplicated `Safe.call`, `Safe.ok` and `Safe.err`, and the nested cause type that duplicated `Outcome`'s failure arms. Each question above has exactly one answer.
 

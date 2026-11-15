@@ -9,6 +9,7 @@
 // from a Safe.try body or a service `init`. `Safe.call` catches its own call, so
 // a throw nobody mapped is a `die`, never a typed `fail`.
 import { type AllA, type AllE, type AllR, all } from "./all.ts";
+import { type ForEachOptions, forEach, type RetryOptions, retry, timeout } from "./combinators.ts";
 import type { Arm, CodeOf, Payload } from "./errors.ts";
 import { isThenable, Outcome } from "./outcome.ts";
 import { NEVER_ABORTED, Scheduler } from "./scheduler.ts";
@@ -184,6 +185,35 @@ export class Safe<A, E, R> {
 				? exit.then((e) => afterAcquire(e, ctx, release))
 				: afterAcquire(exit, ctx, release);
 		});
+	}
+
+	/** Bound a Safe to `ms`; a timeout is an `interrupt` unless `onTimeout` maps it. */
+	static timeout<A, E, R>(safe: Safe<A, E, R>, ms: number): Safe<A, E, R>;
+	static timeout<A, E, R, E2>(
+		safe: Safe<A, E, R>,
+		ms: number,
+		onTimeout: () => E2,
+	): Safe<A, E | E2, R>;
+	static timeout<A, E, R, E2>(
+		safe: Safe<A, E, R>,
+		ms: number,
+		onTimeout?: () => E2,
+	): Safe<A, E | E2, R> {
+		return timeout(safe, ms, onTimeout);
+	}
+
+	/** Re-run on a typed failure; a defect or an interrupt is never retried. */
+	static retry<A, E, R>(safe: Safe<A, E, R>, options: RetryOptions): Safe<A, E, R> {
+		return retry(safe, options);
+	}
+
+	/** Run one Safe per item, in order, optionally in batches of `concurrency`. */
+	static forEach<A, B, E, R>(
+		items: readonly A[],
+		f: (item: A, index: number) => Safe<B, E, R>,
+		options?: ForEachOptions,
+	): Safe<readonly B[], E, R> {
+		return forEach(items, f, options);
 	}
 
 	/** Run in a fresh scope; its finalizers run (LIFO) as soon as it exits. */
