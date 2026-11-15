@@ -52,6 +52,11 @@ console.log(await Runtime.run(timed)); // 先 always: success，再 success
 - 释放可以是异步的，也可以是 generator，并可以在其中 `yield*` 服务。
 - run 被中断时释放仍然执行 —— 这正是登记它的意义。
 
+`s.onCancel(fn)` 不同：它只在**取消进行中的操作**时运行，例如调用数据库客户端的
+`cancel()`；正常成功或失败时不会运行，而且回调是同步的。每一种退出方式都要做的
+清理请使用 `ensuring` 或 `acquireRelease`。详见
+[Scheduler 与取消](./08-scheduler.md)。
+
 ```ts
 import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 

@@ -31,8 +31,12 @@ const exit = await Runtime.run(Safe.all([fetchDoc("a"), fetchDoc("b")]));
 console.log(exit); // { _tag: "success", value: ["doc:a", "doc:b"] }
 ```
 
-第一个 `fail` 或 `die` 会中断兄弟任务，并成为结果。`Safe.allSettled` 是它
-永不失败的兄弟：它按输入顺序返回每一个 `Outcome`，由调用方逐个读 `_tag`。
+第一个 `fail` 或 `die` 会中断兄弟任务，并成为**整个批次**的结果。其他进行中的
+调用是被中断，而不是也变成相同的类型化失败；已经完成的调用不能撤销。客户端必须
+响应 `s.signal`（或注册 `s.onCancel`），底层工作才会停下。五个 HTTP 请求的完整
+讲解见 [Scheduler 与取消](./08-scheduler.md)及
+[可运行示例](../../examples/06-parallel-requests.ts)。
+`Safe.allSettled` 则按输入顺序返回每一个 `Outcome`，失败也不会取消其他任务。
 
 ## `Safe.race` —— 谁先结束用谁
 
@@ -140,65 +144,18 @@ const exit = await Runtime.run(program, { signal: AbortSignal.timeout(10) });
 console.log(exit._tag); // "interrupt"
 ```
 
-### Scheduler 逐个成员
+### Scheduler 的控制
 
-`Safe.call` 把 `Scheduler` 交给回调，它绑着这次运行的 signal 和时钟。你永远不构造它，
-它在 call settle 时被释放 —— 所以要在**开始干活之前**登记"该停什么"。
+`Runtime.run(safe, { signal })` 接收调用方传入的 signal；每次 `Safe.call` 的回调
+都得到这次运行的 `Scheduler` 视图。支持 `AbortSignal` 的客户端直接使用
+`s.signal`，否则注册 `s.onCancel(() => client.cancel())`。`s.sleep` 和 `s.now`
+使用这次运行的时钟。你不需要构造 Scheduler：公开的 `Scheduler` 只是类型接口，
+结算细节在库内部。
 
-| 成员 | 用途 |
-|---|---|
-| `s.signal` | 已经收 `AbortSignal` 的 API：`fetch`、数据库驱动、子进程 |
-| `s.onCancel(fn)` | 收不了 signal 的：定时器、socket、worker |
-| `s.sleep(ms)` | 可取消的等待；`Clocks.manual()` 下虚拟化 |
-| `s.now()` | 这次运行的时钟 —— 别用 `Date.now()`，manual clock 推不动它 |
-
-优先用 `s.signal`。它已经并入了你上面所有的 deadline 与取消（`timeout` 用
-`AbortSignal.any` 把自己的 controller 合进来），直接传出去就完事：
-
-```ts
-import { Safe } from "@gjuoun/safe-ts";
-
-const fetchTodo = (id: number) =>
-  Safe.call((s) => fetch(`https://example.test/todos/${id}`, { signal: s.signal }));
-```
-
-`onCancel` 是给收不了 signal 的东西用的。基于 `setTimeout` 的 promise 必须清掉定时器，
-否则被取消的 call 会留一个还在跑的 timer：
-
-```ts
-import { Safe } from "@gjuoun/safe-ts";
-
-const wait = (ms: number) =>
-  Safe.call(
-    (s) =>
-      new Promise<string>((resolve) => {
-        const timer = setTimeout(() => resolve("done"), ms);
-        s.onCancel(() => clearTimeout(timer));
-      }),
-  );
-```
-
-两个会让人意外的地方：
-
-- **取消的结果是 `interrupt`，不是 `fail`。** 传给 `Safe.call` 的 `mapErr` 永远看不到
-  `AbortError`；只有**没有被取消**的 rejection 才会变成类型化失败。
-- **一开始就 aborted 的 run 根本不会进 body**，所以 `onCancel` 不是"给从未创建的资源"
-  做清理的钩子。
-
-`sleep` 读的是 run 的时钟，这正是 deadline 可测的原因 —— manual clock 不花真实时间就
-把所有到期等待 resolve 掉：
-
-```ts
-import { Clocks, Runtime, Safe } from "@gjuoun/safe-ts";
-
-const { clock, advance } = Clocks.manual();
-const exit = Runtime.run(Safe.call((s) => s.sleep(1000).then(() => "woke")), { clock });
-advance(1000);
-console.log(await exit); // { _tag: "success", value: "woke" }
-```
-
-什么都不登记就什么都不花：不带 signal 的 `Runtime.run(safe)` 从不挂监听，同步 settle 的
-call 也不会分配监听器。
+取消通常产生 `interrupt`，而不是类型化的 `fail`。取消是协作式的：底层请求如果
+忽略取消，即使 Safe 已经结算，它仍可能继续运行。关于 Cancel 按钮、DB 客户端、
+`Safe.all` 失败传导和手动时钟测试，请阅读独立的
+[Scheduler 与取消指南](./08-scheduler.md)。
 
 `uninterruptible` 和 `interruptible` 是区域组合子 —— 组合子常量，不用加
 括号 —— 分别用于屏蔽 deadline 和把区域重新暴露给它：

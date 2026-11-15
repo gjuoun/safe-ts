@@ -52,6 +52,12 @@ console.log(await Runtime.run(timed)); // always: success, then success
 - A release may be async, or a generator, and may itself `yield*` a service.
 - If the run is aborted, the release still runs — that is the point of registering it.
 
+`s.onCancel(fn)` is different: it stops an **in-flight operation** only on
+cancellation, for example by calling a database client's `cancel()`. It does
+not run on success or ordinary failure, and its callback is synchronous.
+Use `ensuring` or `acquireRelease` for cleanup that must run on every exit.
+See [Scheduler and cancellation](./08-scheduler.md).
+
 ```ts
 import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 

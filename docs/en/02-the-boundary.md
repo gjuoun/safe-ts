@@ -28,8 +28,9 @@ import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const fetchUser = (id: string) =>
   Safe.call(
-    async () => {
-      const res = await fetch(`/users/${id}`);
+    async (s) => {
+      const res = await fetch(`/users/${id}`, { signal: s.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return (await res.json()) as { name: string };
     },
     (): "unavailable" => "unavailable",
@@ -39,7 +40,8 @@ const exit = await Runtime.run(fetchUser("u1"));
 console.log(exit._tag); // "success" | "fail" | "die" | "interrupt"
 ```
 
-The callback receives a `Scheduler` — cancellation lives there (chapter 6):
+The callback receives a `Scheduler` — cancellation lives there
+([chapter 8](./08-scheduler.md)):
 
 ```ts
 import { Safe } from "@gjuoun/safe-ts";

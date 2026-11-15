@@ -1,7 +1,7 @@
 # Documentation
 
-A tutorial in seven chapters, in two languages, both compiled by `bun run docs:check`.
-一门两语的七章教程，代码块由 `bun run docs:check` 统一编译。
+A tutorial in eight chapters, in two languages, both compiled by `bun run docs:check`.
+一门两语的八章教程，代码块由 `bun run docs:check` 统一编译。
 
 | # | English | 中文 |
 |---|---|---|
@@ -12,6 +12,7 @@ A tutorial in seven chapters, in two languages, both compiled by `bun run docs:c
 | 5 | [Cleanup that always runs](./en/05-cleanup.md) | [一定会执行的清理](./zh/05-cleanup.md) |
 | 6 | [Concurrency, timeouts, retries, cancellation](./en/06-concurrency.md) | [并发、超时、重试、取消](./zh/06-concurrency.md) |
 | 7 | [Performance, and where this fits](./en/07-performance.md) | [性能，以及适合的场景](./zh/07-performance.md) |
+| 8 | [Scheduler and cancellation: practical guide](./en/08-scheduler.md) | [Scheduler 与取消：实用指南](./zh/08-scheduler.md) |
 
 - [English index](./en/README.md) · [中文目录](./zh/README.md)
-- Reference: [README](../README.md) · Examples: [`examples/`](../examples) · Benchmarks: [`bench/`](../bench)
+- Reference: [README](../README.md) · Examples: [`examples/`](../examples) · Benchmarks: [`benchmark/`](../benchmark)

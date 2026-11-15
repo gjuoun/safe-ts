@@ -40,6 +40,36 @@ await Runtime.run(getUser("u1"));
 - **Cancellation, scopes, `timeout`, `retry`, `all`, `race`, `forEach`** — built from
   `exec` plus a signal, a timer or a batch. No fiber, no scheduler loop.
 
+## Cancel an HTTP request
+
+The caller passes a signal to `Runtime.run`; `Safe.call` gives its callback a
+`Scheduler` whose `s.signal` is passed to an API such as `fetch`. Cancel from
+outside with `controller.abort()`. There is no need to construct a Scheduler:
+
+```ts
+import { Runtime, Safe } from "@gjuoun/safe-ts";
+
+const getUser = Safe.call(
+  async (s) => {
+    const response = await fetch("/api/users/u1", { signal: s.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.text();
+  },
+  (error) => String(error),
+);
+
+const controller = new AbortController();
+const pending = Runtime.run(getUser, { signal: controller.signal });
+controller.abort(); // e.g. in a Cancel button's click handler
+console.log((await pending)._tag); // "interrupt"
+```
+
+If a client cannot accept a signal but has `cancel()`, register it with
+`s.onCancel(() => query.cancel())`. `Scheduler` is a **type-only** public interface:
+`signal`, `onCancel`, `sleep`, `now`. See the [Scheduler and cancellation guide](./docs/en/08-scheduler.md)
+([中文](./docs/zh/08-scheduler.md)) for button handlers, database clients,
+concurrent requests, and virtual time in tests.
+
 ## Install
 
 ```sh
@@ -51,11 +81,13 @@ ESM only, zero runtime dependencies, one bundle and one `.d.ts`. Node ≥ 20.3 (
 
 ## Docs
 
-[Tutorial, seven chapters](./docs/README.md) — [English](./docs/en/README.md) ·
+[Tutorial, eight chapters](./docs/README.md) — [English](./docs/en/README.md) ·
 [中文](./docs/zh/README.md). Every code block in the docs and in this README is compiled
 by `bun run docs:check`.
 
-[`examples/`](./examples) runs standalone · [`bench/`](./bench) compares against Effect.
+Runnable examples: [HTTP and DB cancellation](./examples/04-scheduler.ts) ·
+[five concurrent requests](./examples/06-parallel-requests.ts) ·
+[`examples/`](./examples). [`benchmark/`](./benchmark) compares against Effect.
 
 ## Measured
 
