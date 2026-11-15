@@ -10,8 +10,8 @@ const userError = defineErrors({
 });
 type UserError = ErrorsOf<typeof userError>;
 
-declare const parsed: Safe<number, "nan", never>;
-const find = (id: string): Safe<string, UserError, never> =>
+declare const parsed: Safe<number, "nan">;
+const find = (id: string): Safe<string, UserError> =>
 	id === "u1" ? Safe.ok("ada") : Safe.err(userError.not_found(id));
 
 const prog = Safe.try(function* () {
@@ -20,7 +20,7 @@ const prog = Safe.try(function* () {
 	const upper = yield* Safe.call(() => name.toUpperCase());
 	return `${upper}:${n}`;
 });
-assertType<Equal<typeof prog, Safe<string, "nan" | UserError, never>>>();
+assertType<Equal<typeof prog, Safe<string, "nan" | UserError>>>();
 
 const exit = run(prog);
 assertType<Equal<typeof exit, Promise<Outcome<string, "nan" | UserError>>>>();
@@ -28,14 +28,14 @@ assertType<Equal<typeof exit, Promise<Outcome<string, "nan" | UserError>>>>();
 const handled = Safe.pipe(prog, [
 	Pipe.catchTag("not_found", (e: { id: string }) => Safe.ok(`guest:${e.id}`)),
 ]);
-assertType<Equal<typeof handled, Safe<string, "nan" | Arm<UserError, "invalid">, never>>>();
+assertType<Equal<typeof handled, Safe<string, "nan" | Arm<UserError, "invalid">>>>();
 
 // The generator is the combinator: sequencing is `yield*`, not `andThen`.
 const chained = Safe.try(function* () {
 	const name = yield* find("u1");
 	return name.length;
 });
-assertType<Equal<typeof chained, Safe<number, UserError, never>>>();
+assertType<Equal<typeof chained, Safe<number, UserError>>>();
 
 const mapped = Safe.try(function* () {
 	const n = yield* Safe.call(
@@ -44,7 +44,7 @@ const mapped = Safe.try(function* () {
 	);
 	return String(n);
 });
-assertType<Equal<typeof mapped, Safe<string, "io", never>>>();
+assertType<Equal<typeof mapped, Safe<string, "io">>>();
 
 // Pipe-position catchTag cannot see the target's E: an unknown code compiles
 // and simply never matches — the data-last trade-off.
@@ -52,29 +52,29 @@ Safe.pipe(prog, [Pipe.catchTag("missing", () => Safe.ok(""))]);
 
 // The mapper rule at the type level: omit it and E stays `never`.
 const tryNoMapper = Safe.call(() => JSON.parse("{}") as { name: string });
-assertType<Equal<typeof tryNoMapper, Safe<{ name: string }, never, never>>>();
+assertType<Equal<typeof tryNoMapper, Safe<{ name: string }, never>>>();
 
 const tryMapped = Safe.call(
 	() => 1,
 	(): "bad" => "bad",
 );
-assertType<Equal<typeof tryMapped, Safe<number, "bad", never>>>();
+assertType<Equal<typeof tryMapped, Safe<number, "bad">>>();
 
 const promiseNoMapper = Safe.call(async () => 1);
-assertType<Equal<typeof promiseNoMapper, Safe<number, never, never>>>();
+assertType<Equal<typeof promiseNoMapper, Safe<number, never>>>();
 
 const promiseMapped = Safe.call(
 	async () => 1,
 	(): "io" => "io",
 );
-assertType<Equal<typeof promiseMapped, Safe<number, "io", never>>>();
+assertType<Equal<typeof promiseMapped, Safe<number, "io">>>();
 
 // `Safe.pipe` keeps the R slot when the ops are variadic — the regression that
 // made two generic ops in one array collapse every slot to `any`.
-declare const needsService: Safe<number, "nan", { db: true }>;
+declare const needsService: Safe<number, "nan">;
 const pipedStatic = Safe.pipe(needsService, Pipe.timeout(2_000), Pipe.retry({ attempts: 2 }));
-assertType<Equal<typeof pipedStatic, Safe<number, "nan", { db: true }>>>();
+assertType<Equal<typeof pipedStatic, Safe<number, "nan">>>();
 const pipedMethod = needsService.pipe(Pipe.timeout(2_000), Pipe.retry({ attempts: 2 }));
-assertType<Equal<typeof pipedMethod, Safe<number, "nan", { db: true }>>>();
+assertType<Equal<typeof pipedMethod, Safe<number, "nan">>>();
 // @ts-expect-error two ops in one array are not offered: the tuple collapses to `any`
-Safe.pipe(needsService, [Pipe.timeout(2_000), Pipe.retry({ attempts: 2 })]);
+Safe.pipe(typed, [Pipe.timeout(2_000), Pipe.retry({ attempts: 2 })]);

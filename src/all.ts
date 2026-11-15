@@ -12,21 +12,15 @@
 import { isThenable, Outcome } from "./outcome.ts";
 import { type Ctx, exec, NEVER_ABORTED, Safe } from "./safe.ts";
 
-type AnySafe = Safe<any, any, any>;
+type AnySafe = Safe<any, any>;
 
 export type AllA<T extends readonly AnySafe[]> = {
-	[K in keyof T]: T[K] extends Safe<infer A, any, any> ? A : never;
+	[K in keyof T]: T[K] extends Safe<infer A, any> ? A : never;
 };
 export type AllE<T extends readonly AnySafe[]> = ErrOf<T[number]>;
-export type AllR<T extends readonly AnySafe[]> = ReqOf<T[number]>;
-
-type ErrOf<S> = S extends Safe<any, infer E, any> ? E : never;
-type ReqOf<S> = S extends Safe<any, any, infer R> ? R : never;
-
-export const all = <const T extends readonly AnySafe[]>(
-	safes: T,
-): Safe<AllA<T>, AllE<T>, AllR<T>> =>
-	new Safe<AllA<T>, AllE<T>, AllR<T>>((ctx) => {
+type ErrOf<S> = S extends Safe<any, infer E> ? E : never;
+export const all = <const T extends readonly AnySafe[]>(safes: T): Safe<AllA<T>, AllE<T>> =>
+	new Safe<AllA<T>, AllE<T>>((ctx) => {
 		const local = new AbortController();
 		const child: Ctx = {
 			...ctx,
@@ -59,7 +53,7 @@ export const all = <const T extends readonly AnySafe[]>(
 
 /** `allSettled`'s element tuple: one `Outcome` per input, keeping order. */
 export type AllSettledA<T extends readonly AnySafe[]> = {
-	readonly [K in keyof T]: Outcome<AllA<T>[K], T[K] extends Safe<any, infer E, any> ? E : never>;
+	readonly [K in keyof T]: Outcome<AllA<T>[K], T[K] extends Safe<any, infer E> ? E : never>;
 };
 
 /**
@@ -69,8 +63,8 @@ export type AllSettledA<T extends readonly AnySafe[]> = {
  */
 export const allSettled = <const T extends readonly AnySafe[]>(
 	safes: T,
-): Safe<AllSettledA<T>, never, AllR<T>> =>
-	new Safe<AllSettledA<T>, never, AllR<T>>((ctx) => {
+): Safe<AllSettledA<T>, never> =>
+	new Safe<AllSettledA<T>, never>((ctx) => {
 		const exits = safes.map((safe) => {
 			const out = exec(safe, ctx);
 			return isThenable(out)

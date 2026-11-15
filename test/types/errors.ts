@@ -35,17 +35,17 @@ assertType<
 	>
 >();
 
-declare const read: Safe<string, FsError, never>;
+declare const read: Safe<string, FsError>;
 const recovered = Safe.pipe(read, [
 	Pipe.catchTag("not_found", (e: { message: string; path: string }) => {
 		// The handler's argument is the factory's return type, not the arm.
 		return Safe.ok(`default for ${e.path}`);
 	}),
 ]);
-assertType<Equal<typeof recovered, Safe<string, Arm<FsError, "denied">, never>>>();
+assertType<Equal<typeof recovered, Safe<string, Arm<FsError, "denied">>>>();
 
 const remapped = Safe.pipe(read, [Pipe.catchTag("denied", () => Safe.err("fatal" as const))]);
-assertType<Equal<typeof remapped, Safe<string, Arm<FsError, "not_found"> | "fatal", never>>>();
+assertType<Equal<typeof remapped, Safe<string, Arm<FsError, "not_found"> | "fatal">>>();
 
 // An unknown code compiles in pipe position and never matches.
 Safe.pipe(read, [Pipe.catchTag("nope", () => Safe.ok(1))]);

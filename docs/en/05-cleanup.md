@@ -1,8 +1,8 @@
-# 6 · 一定会执行的清理
+# 5 · Cleanup that always runs
 
-`acquireRelease` 把资源和它的释放配对。释放会在**每一种**退出方式下执行：成功、
-失败、缺陷、中断。它是一个 `Safe → Safe` 工厂 —— 和其他包装器一样，在 `pipe` 里
-包住一个 Safe。
+`acquireRelease` pairs a resource with its release. The release runs on
+**every** exit: success, fail, die and interrupt. It is a `Safe → Safe`
+factory — it wraps the Safe inside `pipe`, like every wrapper.
 
 ```ts
 import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
@@ -19,11 +19,11 @@ const program = Safe.try(function* () {
   return yield* Safe.err("boom" as const);
 });
 
-console.log((await Runtime.run(program))._tag); // 先 release after fail，再 "fail"
+console.log((await Runtime.run(program))._tag); // release after fail, then "fail"
 ```
 
-`scoped` 给这段工作一个自己的作用域，它一退出就关闭 —— 它是组合子常量，pipe 时
-不需要括号：
+`scoped` gives that work its own scope, which closes as soon as it exits —
+it is a combinator constant, so it pipes without parens:
 
 ```ts
 import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
@@ -33,24 +33,24 @@ const work = Safe.try(function* () {
   return "done";
 }).pipe(Pipe.scoped);
 
-console.log(await Runtime.run(work)); // 先 closed，再 success
+console.log(await Runtime.run(work)); // closed, then success
 ```
 
-## `ensuring`：没有资源的清理
+## `ensuring`: cleanup without a resource
 
 ```ts
 import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const timed = Safe.ok(1).pipe(Pipe.ensuring((exit) => console.log(`always: ${exit._tag}`)));
-console.log(await Runtime.run(timed)); // 先 always: success，再 success
+console.log(await Runtime.run(timed)); // always: success, then success
 ```
 
-## 规则
+## The rules
 
-- 释放顺序是**后进先出**。
-- 释放抛异常会把成功变成 `die`；失败则保留自己的错误。
-- 释放可以是异步的，也可以是 generator，并可以在其中 `yield*` 服务。
-- run 被中断时释放仍然执行 —— 这正是登记它的意义。
+- Releases run **last-in, first-out**.
+- A throwing release turns a success into a `die`; a failure keeps its own error.
+- A release may be async, or a generator, and may itself `yield*` a service.
+- If the run is aborted, the release still runs — that is the point of registering it.
 
 ```ts
 import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
@@ -62,5 +62,5 @@ const slow = Safe.try(function* () {
 }).pipe(Pipe.scoped);
 
 const exit = await Runtime.run(slow, { signal: AbortSignal.timeout(10) });
-console.log(exit._tag); // "interrupt"，而且 "closed" 已经打印
+console.log(exit._tag); // "interrupt", and "closed" was printed
 ```

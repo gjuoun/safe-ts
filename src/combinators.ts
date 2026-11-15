@@ -4,20 +4,20 @@
 // factories left to right. None of them needs a fiber loop: each is `exec`
 // plus a signal, a timer or a lane. fork/join is the one that does need a
 // loop, and it stays out.
-import { type AllA, type AllE, type AllR, all } from "./all.ts";
+import { type AllA, type AllE, all } from "./all.ts";
 import { isThenable, Outcome } from "./outcome.ts";
 import { Policy } from "./policy.ts";
 import { type Ctx, exec, NEVER_ABORTED, Safe } from "./safe.ts";
 import { Scope } from "./scope.ts";
 
-type AnySafe = Safe<any, any, any>;
+type AnySafe = Safe<any, any>;
 
 /** The reason a timeout aborts with, so it is not confused with a caller abort. */
 export const TIMEOUT = Symbol("safe-ts.timeout");
 
 /** Wait `ms` on the run's clock; an abort during the wait is an interrupt. */
-export const delay = (ms: number): Safe<void, never, never> =>
-	new Safe<void, never, never>((ctx) => {
+export const delay = (ms: number): Safe<void, never> =>
+	new Safe<void, never>((ctx) => {
 		if (ctx.signal.aborted) return Outcome.interrupt();
 		if (ms <= 0) return Outcome.succeed(undefined);
 		return ctx.clock.sleep(ms, ctx.signal).then(
@@ -40,8 +40,8 @@ export interface RaceOptions {
 export const race = <const T extends readonly AnySafe[]>(
 	safes: T,
 	options: RaceOptions = {},
-): Safe<AllA<T>[number], AllE<T>, AllR<T>> =>
-	new Safe<AllA<T>[number], AllE<T>, AllR<T>>((ctx) => {
+): Safe<AllA<T>[number], AllE<T>> =>
+	new Safe<AllA<T>[number], AllE<T>>((ctx) => {
 		if (safes.length === 0) {
 			return Outcome.die(new Error("safe-ts: Safe.race needs at least one Safe"));
 		}
@@ -97,8 +97,8 @@ export const race = <const T extends readonly AnySafe[]>(
  */
 const ensuring =
 	(cleanup: (exit: Outcome<unknown, unknown>) => void | PromiseLike<void>) =>
-	<A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R> =>
-		new Safe<A, E, R>((ctx) => {
+	<A, E>(safe: Safe<A, E>): Safe<A, E> =>
+		new Safe<A, E>((ctx) => {
 			const settled = (outcome: Outcome<A, E>, defect?: { readonly value: unknown }) =>
 				defect !== undefined && outcome._tag === "success" ? Outcome.die(defect.value) : outcome;
 			const runCleanup = (outcome: Outcome<A, E>): Outcome<A, E> | Promise<Outcome<A, E>> => {
@@ -125,16 +125,13 @@ const ensuring =
  * typed failure instead. The deadline waits on the run's clock, so
  * `Clocks.manual()` virtualises it.
  */
-function timeout(ms: number): <A, E, R>(safe: Safe<A, E, R>) => Safe<A, E, R>;
-function timeout<E2>(
-	ms: number,
-	onTimeout: () => E2,
-): <A, E, R>(safe: Safe<A, E, R>) => Safe<A, E | E2, R>;
+function timeout(ms: number): <A, E>(safe: Safe<A, E>) => Safe<A, E>;
+function timeout<E2>(ms: number, onTimeout: () => E2): <A, E>(safe: Safe<A, E>) => Safe<A, E | E2>;
 function timeout(ms: number, onTimeout?: () => unknown) {
 	// The generics live on the returned arrow — `timeout(10)` is still a
 	// generic `Safe → Safe`, so `pipe` can instantiate it per call site.
-	return <A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R> =>
-		new Safe<A, E, R>((ctx) => {
+	return <A, E>(safe: Safe<A, E>): Safe<A, E> =>
+		new Safe<A, E>((ctx) => {
 			const controller = new AbortController();
 			const ticking = ctx.clock.sleep(ms, controller.signal).then(
 				() => controller.abort(TIMEOUT),
@@ -154,7 +151,7 @@ function timeout(ms: number, onTimeout?: () => unknown) {
 			void ticking;
 			const exit = exec(safe, child);
 			return isThenable(exit) ? exit.then(finish) : finish(exit);
-		}) as Safe<A, E, R>;
+		}) as Safe<A, E>;
 }
 
 export interface RetryOptions {
@@ -175,8 +172,8 @@ export interface RetryOptions {
  */
 const retry =
 	<Err = any>(options: RetryOptions | Policy<Err>) =>
-	<A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R> =>
-		new Safe<A, E, R>((ctx) => {
+	<A, E>(safe: Safe<A, E>): Safe<A, E> =>
+		new Safe<A, E>((ctx) => {
 			const policy: Policy<any> =
 				typeof options === "function"
 					? (options as Policy<any>)
@@ -231,18 +228,17 @@ export interface ForEachOptions {
  * becomes the result; with no limit it is `Safe.all`, which also holds the
  * synchronous fast path.
  */
-export const forEach = <A, B, E, R>(
+export const forEach = <A, B, E>(
 	items: readonly A[],
-	f: (item: A, index: number) => Safe<B, E, R>,
+	f: (item: A, index: number) => Safe<B, E>,
 	options: ForEachOptions = {},
-): Safe<readonly B[], E, R> =>
-	new Safe<readonly B[], E, R>((ctx) => {
+): Safe<readonly B[], E> =>
+	new Safe<readonly B[], E>((ctx) => {
 		const limit = Math.max(1, options.concurrency ?? items.length);
 		if (limit >= items.length) {
-			const joined = all(items.map((item, i) => f(item, i)) as readonly Safe<B, E, R>[]) as Safe<
+			const joined = all(items.map((item, i) => f(item, i)) as readonly Safe<B, E>[]) as Safe<
 				readonly B[],
-				E,
-				R
+				E
 			>;
 			return exec(joined, ctx);
 		}
@@ -289,8 +285,8 @@ export const forEach = <A, B, E, R>(
 	});
 
 /** Run `safe` in a fresh scope; its finalizers run (LIFO) as soon as it exits. */
-const scoped = <A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R> =>
-	new Safe<A, E, R>((ctx) => {
+const scoped = <A, E>(safe: Safe<A, E>): Safe<A, E> =>
+	new Safe<A, E>((ctx) => {
 		const scope = new Scope();
 		const exit = exec(safe, { ...ctx, scope });
 		return isThenable(exit) ? exit.then((e) => scope.close(e)) : scope.close(exit);
@@ -303,8 +299,8 @@ const scoped = <A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R> =>
  */
 const acquireRelease =
 	(release: (resource: any, exit: Outcome<unknown, unknown>) => void | PromiseLike<void>) =>
-	<A, E, R>(acquire: Safe<A, E, R>): Safe<A, E, R> =>
-		new Safe<A, E, R>((ctx) => {
+	<A, E>(acquire: Safe<A, E>): Safe<A, E> =>
+		new Safe<A, E>((ctx) => {
 			const exit = exec(acquire, {
 				...ctx,
 				signal: NEVER_ABORTED,
@@ -332,8 +328,8 @@ const afterAcquire = <A, E>(
  * was deferred is observed — the outcome becomes `interrupt` — and a defect
  * stays a defect.
  */
-const uninterruptible = <A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R> =>
-	new Safe<A, E, R>((ctx) => {
+const uninterruptible = <A, E>(safe: Safe<A, E>): Safe<A, E> =>
+	new Safe<A, E>((ctx) => {
 		const exit = exec(safe, { ...ctx, signal: NEVER_ABORTED, restoreSignal: ctx.signal });
 		const recheck = (out: Outcome<A, E>): Outcome<A, E> =>
 			out._tag === "die" ? out : ctx.signal.aborted ? Outcome.interrupt() : out;
@@ -344,8 +340,8 @@ const uninterruptible = <A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R> =>
  * Undo a surrounding `uninterruptible` mask for this region. Outside a mask it
  * changes nothing: a signal that is not `NEVER_ABORTED` is restored to itself.
  */
-const interruptible = <A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R> =>
-	new Safe<A, E, R>((ctx) => {
+const interruptible = <A, E>(safe: Safe<A, E>): Safe<A, E> =>
+	new Safe<A, E>((ctx) => {
 		if (ctx.signal !== NEVER_ABORTED) return exec(safe, ctx);
 		return exec(safe, { ...ctx, signal: ctx.restoreSignal });
 	});

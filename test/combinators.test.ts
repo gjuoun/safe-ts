@@ -82,7 +82,7 @@ describe("Safe.race", () => {
 	});
 
 	test("an empty race is a defect naming the rule", async () => {
-		const exit = await run(Safe.race([] as Safe<number, never, never>[]));
+		const exit = await run(Safe.race([] as Safe<number, never>[]));
 		expect(exit._tag).toBe("die");
 	});
 
@@ -366,7 +366,7 @@ describe("Safe.pipe", () => {
 
 	test("a user-defined combinator joins the list", async () => {
 		const seen: string[] = [];
-		const tag = (name: string) => (safe: Safe<number, never, never>) =>
+		const tag = (name: string) => (safe: Safe<number, never>) =>
 			safe.pipe(
 				Pipe.ensuring(() => {
 					seen.push(name);

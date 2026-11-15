@@ -137,7 +137,7 @@ describe("Safe combinators", () => {
 	});
 
 	test("catchTag recovers one code and keeps the rest", async () => {
-		const find = (id: string): Safe<string, ReturnType<typeof userError.not_found>, never> =>
+		const find = (id: string): Safe<string, ReturnType<typeof userError.not_found>> =>
 			id === "u1" ? Safe.ok("ada") : Safe.err(userError.not_found(id));
 		const recovered = Safe.pipe(find("u2"), [
 			Pipe.catchTag("not_found", (e: { id: string }) => Safe.ok(`guest:${e.id}`)),

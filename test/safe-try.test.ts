@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Outcome } from "../src/outcome.ts";
 import { run, Safe } from "../src/safe.ts";
 
-const parse = (s: string): Safe<number, string, never> => {
+const parse = (s: string): Safe<number, string> => {
 	const n = Number(s);
 	return Number.isNaN(n) ? Safe.err(`nan: ${s}`) : Safe.ok(n);
 };

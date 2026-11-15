@@ -39,7 +39,7 @@ const exit = await Runtime.run(fetchUser("u1"));
 console.log(exit._tag); // "success" | "fail" | "die" | "interrupt"
 ```
 
-The callback receives a `Scheduler` — cancellation lives there (chapter 7):
+The callback receives a `Scheduler` — cancellation lives there (chapter 6):
 
 ```ts
 import { Safe } from "@gjuoun/safe-ts";

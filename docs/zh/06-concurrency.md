@@ -1,4 +1,4 @@
-# 7 · 并发、超时、重试、取消
+# 6 · 并发、超时、重试、取消
 
 这里的每个包装器都是 `Safe → Safe` 工厂 —— `exec` 加一个 signal、一个定时器或
 一条车道，没有 fiber —— 它们在 `pipe` 里与 Safe 相遇：
@@ -6,7 +6,7 @@
 ```ts
 import { Pipe, Safe } from "@gjuoun/safe-ts";
 
-const fetch: Safe<number, string, never> = Safe.ok(1);
+const fetch: Safe<number, string> = Safe.ok(1);
 const policy = { attempts: 3, delayMs: 10 };
 
 // timeout 包住整个重试循环
@@ -149,8 +149,8 @@ console.log(exit._tag); // "interrupt"
 ```ts
 import { Pipe, Safe } from "@gjuoun/safe-ts";
 
-declare const critical: Safe<number, never, never>;
-declare const acquire: Safe<{ close(): void }, never, never>;
+declare const critical: Safe<number, never>;
+declare const acquire: Safe<{ close(): void }, never>;
 declare const close: (r: { close(): void }) => void;
 
 // 该区域不可被切断；deadline 在下一步被观察到。

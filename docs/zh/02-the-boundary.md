@@ -38,7 +38,7 @@ const exit = await Runtime.run(fetchUser("u1"));
 console.log(exit._tag); // "success" | "fail" | "die" | "interrupt"
 ```
 
-回调拿到一个 `Scheduler`，取消能力在那里（第 7 章）：
+回调拿到一个 `Scheduler`，取消能力在那里（第 6 章）：
 
 ```ts
 import { Safe } from "@gjuoun/safe-ts";

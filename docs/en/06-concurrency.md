@@ -1,4 +1,4 @@
-# 7 · Concurrency, timeouts, retries, cancellation
+# 6 · Concurrency, timeouts, retries, cancellation
 
 Every wrapper here is a `Safe → Safe` factory — `exec` plus a signal, a timer
 or a lane, never a fiber — and it meets a Safe inside `pipe`:
@@ -6,7 +6,7 @@ or a lane, never a fiber — and it meets a Safe inside `pipe`:
 ```ts
 import { Pipe, Safe } from "@gjuoun/safe-ts";
 
-const fetch: Safe<number, string, never> = Safe.ok(1);
+const fetch: Safe<number, string> = Safe.ok(1);
 const policy = { attempts: 3, delayMs: 10 };
 
 // timeout bounds the whole retry loop
@@ -157,8 +157,8 @@ back in:
 ```ts
 import { Pipe, Safe } from "@gjuoun/safe-ts";
 
-declare const critical: Safe<number, never, never>;
-declare const acquire: Safe<{ close(): void }, never, never>;
+declare const critical: Safe<number, never>;
+declare const acquire: Safe<{ close(): void }, never>;
 declare const close: (r: { close(): void }) => void;
 
 // The region cannot be cut; the deadline is observed at the next step.

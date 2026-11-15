@@ -1,37 +1,37 @@
 # safe-ts
 
-Typed errors and dependency-aware effects for TypeScript — without a fiber runtime.
+Typed errors and cancellable effects for TypeScript — without a fiber runtime.
 
 ```ts
-import { Errors, Runtime, Safe, Services } from "@gjuoun/safe-ts";
+import { Errors, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ message: `no user ${id}`, id }),
 });
 
 class UserRepo {
-  static *init() {
-    return new UserRepo();
-  }
+  constructor(private readonly rows: Record<string, { id: string; name: string }>) {}
   find(id: string) {
-    return id === "u1" ? { id, name: "ada" } : undefined;
+    return this.rows[id];
   }
 }
 
+const repo = new UserRepo({ u1: { id: "u1", name: "ada" } });
+
 const getUser = (id: string) =>
   Safe.try(function* () {
-    const repo = yield* Services.get(UserRepo);
     const user = repo.find(id);
     if (!user) return yield* Safe.err(userError.not_found(id));
     return user;
   });
 
-await Runtime.run(Services.provide(getUser("u1"), [UserRepo]));
+await Runtime.run(getUser("u1"));
 // { _tag: "success", value: { id: "u1", name: "ada" } }
 ```
 
-- **`Safe<A, E, R>`** — a lazy description of work. `R` names the services it still
-  needs, so a missing service is a compile error, not a runtime `undefined`.
+- **`Safe<A, E>`** — a lazy description of work: what it succeeds with, what it can
+  fail with. Nothing else to thread — dependencies are constructor arguments, so a
+  missing one is a compile error at the call site.
 - **`Safe.call(fn, mapErr?)`** — the only boundary. Declare a mapper and a throw becomes
   `fail(mapErr(thrown))`; omit it and the throw is a `die` — a defect, never something
   you declared.
@@ -51,7 +51,7 @@ ESM only, zero runtime dependencies, one bundle and one `.d.ts`. Node ≥ 20.3 (
 
 ## Docs
 
-[Tutorial, eight chapters](./docs/README.md) — [English](./docs/en/README.md) ·
+[Tutorial, seven chapters](./docs/README.md) — [English](./docs/en/README.md) ·
 [中文](./docs/zh/README.md). Every code block in the docs and in this README is compiled
 by `bun run docs:check`.
 
