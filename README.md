@@ -218,18 +218,19 @@ server actually has). Bun 1.3.14, arm64, 200,000 iterations, best of 5:
 
 | scenario | safe-ts | Effect (`runSync`) | neverthrow |
 |---|---|---|---|
-| two calls, success | 261 ns/op | 367 ns/op | 441 ns/op |
-| recovered `not_found` | 331 ns/op | 396 ns/op | 387 ns/op |
-| ten `Safe.call` steps | 737 ns/op | 741 ns/op | 542 ns/op |
-| ten `Safe.ok` steps | 290 ns/op | 482 ns/op | 450 ns/op |
-| throw → typed error | 707 ns/op | 871 ns/op | 786 ns/op |
-| async step, sync body | 599 ns/op | n/a | 791 ns/op |
+| two calls, success | 319 ns/op | 334 ns/op | 423 ns/op |
+| recovered `not_found` | 387 ns/op | 357 ns/op | 422 ns/op |
+| ten `Safe.call` steps | 786 ns/op | 706 ns/op | 557 ns/op |
+| ten `Safe.ok` steps | 379 ns/op | 442 ns/op | 478 ns/op |
+| throw → typed error | 855 ns/op | 842 ns/op | 844 ns/op |
+| async step, sync body | 627 ns/op | n/a | 787 ns/op |
 
 An async step does **not** need an `async function*` body. A sync generator holding
-`yield* Safe.call(async () => …)` runs the same program at **599 ns/op**, where the
-`async function*` form costs **1005** — an async generator turns every `next()` into a
+`yield* Safe.call(async () => …)` runs the same program at **627 ns/op**, where the
+`async function*` form costs **980** — an async generator turns every `next()` into a
 promise and wraps each delegation hop in an async-from-sync conversion. Effect never
 pays that: its `gen` is always a sync generator, with async work carried as a value.
+With the sync body, one async step costs the same as Effect's (627 against 639).
 
 The harness is `bun run /tmp/jun/bench6/run.ts` — seven scenarios, three
 libraries, parity asserted first (every lane prints the same result before any

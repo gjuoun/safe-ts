@@ -445,50 +445,57 @@ export const drive = (
 	}
 };
 
-/** Continue in async mode: the next generator step was a promise. */
-const driveFromStep = async (
+/**
+ * The sync loop, entered once a promise has already resolved: every suspension
+ * resumes here rather than in an `async` function, which is how Effect's fiber
+ * avoids paying for an extra promise per resumption.
+ */
+const driveResolved = (
 	it: AnyGenerator,
 	ctx: Ctx,
-	pending: PromiseLike<IteratorResult<unknown, unknown>>,
-): Promise<Outcome<unknown, unknown>> => {
-	try {
-		let step = await pending;
-		let input: unknown;
-		for (;;) {
-			if (ctx.signal.aborted) return close(it, Outcome.interrupt());
-			if (step.done) return Outcome.succeed(step.value);
-			const resolved = await resolveYield(step.value, ctx);
-			if (resolved._tag !== "success") return close(it, resolved);
-			input = resolved.value;
-			step = await it.next(input);
-		}
-	} catch (defect) {
-		// A rejecting generator step is a defect, exactly as a sync throw is.
-		return Outcome.die(defect);
+	first: Outcome<unknown, unknown>,
+): Outcome<unknown, unknown> | Promise<Outcome<unknown, unknown>> => {
+	let resolved = first;
+	for (;;) {
+		if (ctx.signal.aborted) return close(it, Outcome.interrupt());
+		if (resolved._tag !== "success") return close(it, resolved);
+		const step = it.next(resolved.value);
+		if (isThenable(step)) return driveFromStep(it, ctx, step);
+		if (step.done) return Outcome.succeed(step.value);
+		const next = resolveYield(step.value, ctx);
+		if (isThenable(next)) return driveFromYield(it, ctx, next);
+		resolved = next;
 	}
 };
 
+/** Continue in async mode: the next generator step was a promise. */
+const driveFromStep = (
+	it: AnyGenerator,
+	ctx: Ctx,
+	pending: PromiseLike<IteratorResult<unknown, unknown>>,
+): Promise<Outcome<unknown, unknown>> =>
+	Promise.resolve(pending).then(
+		(step) => {
+			if (step.done) return Outcome.succeed(step.value);
+			const resolved = resolveYield(step.value, ctx);
+			return isThenable(resolved)
+				? driveFromYield(it, ctx, resolved)
+				: driveResolved(it, ctx, resolved);
+		},
+		// A rejecting generator step is a defect, exactly as a sync throw is.
+		(defect) => Outcome.die(defect),
+	);
+
 /** Continue in async mode: a yielded value resolved to a promise. */
-const driveFromYield = async (
+const driveFromYield = (
 	it: AnyGenerator,
 	ctx: Ctx,
 	pending: PromiseLike<Outcome<unknown, unknown>>,
-): Promise<Outcome<unknown, unknown>> => {
-	try {
-		let resolved = await pending;
-		let input: unknown;
-		for (;;) {
-			if (ctx.signal.aborted) return close(it, Outcome.interrupt());
-			if (resolved._tag !== "success") return close(it, resolved);
-			input = resolved.value;
-			const step = await it.next(input);
-			if (step.done) return Outcome.succeed(step.value);
-			resolved = await resolveYield(step.value, ctx);
-		}
-	} catch (defect) {
-		return Outcome.die(defect);
-	}
-};
+): Promise<Outcome<unknown, unknown>> =>
+	Promise.resolve(pending).then(
+		(resolved) => driveResolved(it, ctx, resolved),
+		(defect) => Outcome.die(defect),
+	);
 
 /**
  * Close a suspended generator so its `finally` blocks run. A throw from one is
