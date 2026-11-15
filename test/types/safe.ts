@@ -68,3 +68,13 @@ const promiseMapped = Safe.call(
 	(): "io" => "io",
 );
 assertType<Equal<typeof promiseMapped, Safe<number, "io", never>>>();
+
+// `Safe.pipe` keeps the R slot when the ops are variadic — the regression that
+// made two generic ops in one array collapse every slot to `any`.
+declare const needsService: Safe<number, "nan", { db: true }>;
+const pipedStatic = Safe.pipe(needsService, Pipe.timeout(2_000), Pipe.retry({ attempts: 2 }));
+assertType<Equal<typeof pipedStatic, Safe<number, "nan", { db: true }>>>();
+const pipedMethod = needsService.pipe(Pipe.timeout(2_000), Pipe.retry({ attempts: 2 }));
+assertType<Equal<typeof pipedMethod, Safe<number, "nan", { db: true }>>>();
+// @ts-expect-error two ops in one array are not offered: the tuple collapses to `any`
+Safe.pipe(needsService, [Pipe.timeout(2_000), Pipe.retry({ attempts: 2 })]);

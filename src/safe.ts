@@ -178,19 +178,29 @@ export class Safe<A, E, R> {
 	 * timeout, retry, ensuring, scoped, acquireRelease, catchTag, provide,
 	 * uninterruptible and interruptible — and any combinator you write — meet a
 	 * Safe. Lazy: nothing runs until `Runtime.run`.
+	 *
+	 * Variadic is the form to reach for — `Safe.pipe(safe, timeout(2_000),
+	 * retry(policy))` — because the types flow one op at a time. A *single* op
+	 * may also arrive in an array, `Safe.pipe(safe, [catchTag("not_found", h)])`.
+	 * Two or more ops in one array are deliberately not offered: TypeScript infers
+	 * a tuple's elements in a single pass, so a generic op there collapses to
+	 * `any` and the `R` slot silently stops tracking the services still needed.
 	 */
-	static pipe<A, E, R>(safe: Safe<A, E, R>, ops: readonly []): Safe<A, E, R>;
+	static pipe<A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R>;
 	static pipe<A, E, R, T1 extends AnySafe>(
 		safe: Safe<A, E, R>,
-		ops: readonly [(safe: Safe<A, E, R>) => T1],
+		op1: (safe: Safe<A, E, R>) => T1,
 	): T1;
 	static pipe<A, E, R, T1 extends AnySafe, T2 extends AnySafe>(
 		safe: Safe<A, E, R>,
-		ops: readonly [(safe: Safe<A, E, R>) => T1, (safe: T1) => T2],
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
 	): T2;
 	static pipe<A, E, R, T1 extends AnySafe, T2 extends AnySafe, T3 extends AnySafe>(
 		safe: Safe<A, E, R>,
-		ops: readonly [(safe: Safe<A, E, R>) => T1, (safe: T1) => T2, (safe: T2) => T3],
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+		op3: (safe: T2) => T3,
 	): T3;
 	static pipe<
 		A,
@@ -202,12 +212,10 @@ export class Safe<A, E, R> {
 		T4 extends AnySafe,
 	>(
 		safe: Safe<A, E, R>,
-		ops: readonly [
-			(safe: Safe<A, E, R>) => T1,
-			(safe: T1) => T2,
-			(safe: T2) => T3,
-			(safe: T3) => T4,
-		],
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+		op3: (safe: T2) => T3,
+		op4: (safe: T3) => T4,
 	): T4;
 	static pipe<
 		A,
@@ -220,13 +228,11 @@ export class Safe<A, E, R> {
 		T5 extends AnySafe,
 	>(
 		safe: Safe<A, E, R>,
-		ops: readonly [
-			(safe: Safe<A, E, R>) => T1,
-			(safe: T1) => T2,
-			(safe: T2) => T3,
-			(safe: T3) => T4,
-			(safe: T4) => T5,
-		],
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+		op3: (safe: T2) => T3,
+		op4: (safe: T3) => T4,
+		op5: (safe: T4) => T5,
 	): T5;
 	static pipe<
 		A,
@@ -240,14 +246,12 @@ export class Safe<A, E, R> {
 		T6 extends AnySafe,
 	>(
 		safe: Safe<A, E, R>,
-		ops: readonly [
-			(safe: Safe<A, E, R>) => T1,
-			(safe: T1) => T2,
-			(safe: T2) => T3,
-			(safe: T3) => T4,
-			(safe: T4) => T5,
-			(safe: T5) => T6,
-		],
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+		op3: (safe: T2) => T3,
+		op4: (safe: T3) => T4,
+		op5: (safe: T4) => T5,
+		op6: (safe: T5) => T6,
 	): T6;
 	static pipe<
 		A,
@@ -262,15 +266,13 @@ export class Safe<A, E, R> {
 		T7 extends AnySafe,
 	>(
 		safe: Safe<A, E, R>,
-		ops: readonly [
-			(safe: Safe<A, E, R>) => T1,
-			(safe: T1) => T2,
-			(safe: T2) => T3,
-			(safe: T3) => T4,
-			(safe: T4) => T5,
-			(safe: T5) => T6,
-			(safe: T6) => T7,
-		],
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+		op3: (safe: T2) => T3,
+		op4: (safe: T3) => T4,
+		op5: (safe: T4) => T5,
+		op6: (safe: T5) => T6,
+		op7: (safe: T6) => T7,
 	): T7;
 	static pipe<
 		A,
@@ -286,24 +288,30 @@ export class Safe<A, E, R> {
 		T8 extends AnySafe,
 	>(
 		safe: Safe<A, E, R>,
-		ops: readonly [
-			(safe: Safe<A, E, R>) => T1,
-			(safe: T1) => T2,
-			(safe: T2) => T3,
-			(safe: T3) => T4,
-			(safe: T4) => T5,
-			(safe: T5) => T6,
-			(safe: T6) => T7,
-			(safe: T7) => T8,
-		],
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+		op3: (safe: T2) => T3,
+		op4: (safe: T3) => T4,
+		op5: (safe: T4) => T5,
+		op6: (safe: T5) => T6,
+		op7: (safe: T6) => T7,
+		op8: (safe: T7) => T8,
 	): T8;
-	static pipe(safe: AnySafe, ops: readonly ((s: AnySafe) => AnySafe)[] = []): AnySafe {
+	static pipe<A, E, R, T1 extends AnySafe>(
+		safe: Safe<A, E, R>,
+		ops: readonly [(safe: Safe<A, E, R>) => T1],
+	): T1;
+	static pipe(
+		safe: AnySafe,
+		first?: readonly ((s: AnySafe) => AnySafe)[] | ((s: AnySafe) => AnySafe),
+		...rest: ((s: AnySafe) => AnySafe)[]
+	): AnySafe {
+		const ops = Array.isArray(first) ? first : first === undefined ? rest : [first, ...rest];
 		return ops.reduce<AnySafe>((acc, op) => op(acc), safe);
 	}
-
 	/**
 	 * The variadic twin of `Safe.pipe`: `fetch.pipe(timeout(2000), retry(p))` is
-	 * `Safe.pipe(fetch, [timeout(2000), retry(p)])` — same fold, common case.
+	 * `Safe.pipe(fetch, timeout(2000), retry(p))` — same fold, common case.
 	 */
 	pipe(): Safe<A, E, R>;
 	pipe<T1 extends AnySafe>(op1: (safe: Safe<A, E, R>) => T1): T1;

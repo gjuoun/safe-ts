@@ -10,14 +10,16 @@ const fetch: Safe<number, string, never> = Safe.ok(1);
 const policy = { attempts: 3, delayMs: 10 };
 
 // timeout bounds the whole retry loop
-Safe.pipe(fetch, [Pipe.retry(policy), Pipe.timeout(30_000)]);
+Safe.pipe(fetch, Pipe.retry(policy), Pipe.timeout(30_000));
 
 // timeout bounds each attempt; the typed failure is what the policy sees
-Safe.pipe(fetch, [Pipe.timeout(2_000, () => "timeout" as const), Pipe.retry(policy)]);
+Safe.pipe(fetch, Pipe.timeout(2_000, () => "timeout" as const), Pipe.retry(policy));
 ```
 
-`safe.pipe(op1, op2)` is the variadic twin of `Safe.pipe(safe, [ops])` — the
-same fold for the common case. Both are lazy: nothing runs until `Runtime.run`.
+Both spellings fold the same way: `Safe.pipe(safe, op1, op2)` and the method form
+`safe.pipe(op1, op2)`. Variadic is the one to reach for — the types flow op by op;
+a single op may also arrive in an array, `Safe.pipe(safe, [op])`. Both are lazy:
+nothing runs until `Runtime.run`.
 
 ## `Safe.all` — fan out, keep order
 
@@ -164,5 +166,5 @@ Safe.pipe(critical, [Pipe.uninterruptible]);
 
 // Inside a masked region, `interruptible` restores the real signal —
 // `acquireRelease`'s acquire is masked, so this is Effect's `restore`.
-Safe.pipe(acquire, [Pipe.interruptible, Pipe.acquireRelease(close)]);
+Safe.pipe(acquire, Pipe.interruptible, Pipe.acquireRelease(close));
 ```

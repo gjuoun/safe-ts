@@ -1,6 +1,6 @@
 // combinators.ts — the scheduling combinators, as `Safe → Safe` factories.
 //
-// One entry: `Safe.pipe(safe, [timeout(2_000), retry(policy)])` folds these
+// One entry: `Safe.pipe(safe, timeout(2_000), retry(policy))` folds these
 // factories left to right. None of them needs a fiber loop: each is `exec`
 // plus a signal, a timer or a lane. fork/join is the one that does need a
 // loop, and it stays out.

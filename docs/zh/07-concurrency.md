@@ -10,14 +10,15 @@ const fetch: Safe<number, string, never> = Safe.ok(1);
 const policy = { attempts: 3, delayMs: 10 };
 
 // timeout 包住整个重试循环
-Safe.pipe(fetch, [Pipe.retry(policy), Pipe.timeout(30_000)]);
+Safe.pipe(fetch, Pipe.retry(policy), Pipe.timeout(30_000));
 
 // timeout 包住每一次尝试；策略看到的是那个 typed fail
-Safe.pipe(fetch, [Pipe.timeout(2_000, () => "timeout" as const), Pipe.retry(policy)]);
+Safe.pipe(fetch, Pipe.timeout(2_000, () => "timeout" as const), Pipe.retry(policy));
 ```
 
-`safe.pipe(op1, op2)` 是 `Safe.pipe(safe, [ops])` 的变参孪生 —— 同一个 fold，
-用于常见情形。两者都是惰性的：`Runtime.run` 之前什么都不会跑。
+两种写法是同一个 fold：`Safe.pipe(safe, op1, op2)` 与方法形式 `safe.pipe(op1, op2)`。
+首选变参形式 —— 类型逐个 op 往下流；单个 op 也可以放进数组，`Safe.pipe(safe, [op])`。
+两者都是惰性的：`Runtime.run` 之前什么都不会跑。
 
 ## `Safe.all` —— 并发、保序
 
@@ -157,5 +158,5 @@ Safe.pipe(critical, [Pipe.uninterruptible]);
 
 // 在被屏蔽的区域里，`interruptible` 还原真实 signal ——
 // `acquireRelease` 的 acquire 阶段是被屏蔽的，所以这就是 Effect 的 `restore`。
-Safe.pipe(acquire, [Pipe.interruptible, Pipe.acquireRelease(close)]);
+Safe.pipe(acquire, Pipe.interruptible, Pipe.acquireRelease(close));
 ```

@@ -372,7 +372,7 @@ describe("Safe.pipe", () => {
 					seen.push(name);
 				}),
 			);
-		const exit = await run(Safe.pipe(Safe.ok(1), [tag("first"), tag("second")]));
+		const exit = await run(Safe.pipe(Safe.ok(1), tag("first"), tag("second")));
 		expect(exit).toEqual(Outcome.succeed(1));
 		// Ensuring order follows wrap order: second's cleanup runs first.
 		expect(seen).toEqual(["first", "second"]);
