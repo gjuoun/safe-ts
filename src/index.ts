@@ -7,7 +7,6 @@
 //   Runtime:   run (one-shot), make (owning), instance run/dispose
 //   Outcome, Scheduler: classes
 import { defineErrors, renderError } from "./errors.ts";
-import { Runtime } from "./runtime.ts";
 import { get, instance, provide } from "./services.ts";
 
 export const VERSION = "0.1.0";

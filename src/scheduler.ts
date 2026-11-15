@@ -1,12 +1,13 @@
 // scheduler.ts — cancellation, owned by the library.
 //
 // `Safe.call` hands your callback a Scheduler instead of a raw AbortSignal.
-// You register what should stop (`onCancel`) or you wait (`sleep`); the class
-// attaches the one `abort` listener when it is built and drops it when the call
-// settles. Hand-wiring `signal.addEventListener` instead leaks a listener per
-// call — `{ once: true }` only fires on abort, so a call that resolves normally
-// never removes it (measured: 100 listeners over 100 runs).
-import type { Outcome } from "./outcome.ts";
+// You register what should stop (`onCancel`) or you wait (`sleep`). The one
+// `abort` listener is attached lazily — only when a callback is registered or an
+// async body is in flight, i.e. when something can observe cancellation — and
+// dropped when the call settles. Hand-wiring `signal.addEventListener` instead
+// leaks a listener per call: `{ once: true }` only fires on abort, so a call
+// that resolves normally never removes it (measured: 100 listeners / 100 runs).
+import { isThenable, Outcome } from "./outcome.ts";
 
 /** What running the registered callbacks found. Internal. */
 interface Cancelled {
@@ -14,19 +15,26 @@ interface Cancelled {
 	readonly defect?: unknown;
 }
 
+const NOOP = (): void => {};
+
 export class Scheduler {
-	readonly #callbacks: (() => void)[] = [];
+	/** Created on first registration: a call that registers nothing allocates nothing. */
+	#callbacks: (() => void)[] | undefined;
 	#onAbort: ((cancelled: Cancelled) => void) | undefined;
-	#listening: boolean;
+	#listening = false;
 
 	/** `signal` is the run's own signal: pass it to APIs that take one. */
-	constructor(readonly signal: AbortSignal) {
-		this.#listening = !signal.aborted;
-		if (this.#listening) signal.addEventListener("abort", this.#abort, { once: true });
-	}
+	constructor(readonly signal: AbortSignal) {}
 
 	get aborted(): boolean {
 		return this.signal.aborted;
+	}
+
+	/** Attach the listener on first use: a call that never registers never pays. */
+	#listen(): void {
+		if (this.#listening || this.signal.aborted) return;
+		this.#listening = true;
+		this.signal.addEventListener("abort", this.#abort, { once: true });
 	}
 
 	/**
@@ -37,12 +45,14 @@ export class Scheduler {
 	onCancel(fn: () => void): () => void {
 		if (this.signal.aborted) {
 			fn();
-			return () => {};
+			return NOOP;
 		}
+		this.#listen();
+		this.#callbacks = this.#callbacks ?? [];
 		this.#callbacks.push(fn);
 		return () => {
-			const at = this.#callbacks.indexOf(fn);
-			if (at >= 0) this.#callbacks.splice(at, 1);
+			const at = this.#callbacks?.indexOf(fn) ?? -1;
+			if (at >= 0) this.#callbacks?.splice(at, 1);
 		};
 	}
 
@@ -67,26 +77,45 @@ export class Scheduler {
 	 * `onCancel` callback makes the settle a `die`. `Safe.call` decides whether
 	 * that unclassified failure was declared or a defect.
 	 *
+	 * A body that returns a plain value settles synchronously — no promise, no
+	 * listener — because a value that already finished cannot be interrupted.
+	 *
 	 * @internal Use `Safe.call`.
 	 */
-	settle<A>(start: () => A | PromiseLike<A>): Promise<Outcome<Awaited<A>, unknown>> {
+	settle<A>(
+		start: () => A | PromiseLike<A>,
+	): Outcome<Awaited<A>, unknown> | Promise<Outcome<Awaited<A>, unknown>> {
+		if (this.signal.aborted) return Outcome.interrupt();
+		let result: A | PromiseLike<A>;
+		try {
+			result = start();
+		} catch (error) {
+			this.#release();
+			return Outcome.fail(error);
+		}
+		if (!isThenable(result)) {
+			this.#release();
+			return Outcome.succeed(result as Awaited<A>);
+		}
+		return this.#settleAsync(result as PromiseLike<Awaited<A>>);
+	}
+
+	/** The async branch: the only place a listener is needed while work runs. */
+	#settleAsync<A>(pending: PromiseLike<A>): Promise<Outcome<A, unknown>> {
 		return new Promise((resolve) => {
-			if (this.signal.aborted) return resolve({ _tag: "interrupt" });
 			let settled = false;
-			const finish = (s: Outcome<Awaited<A>, unknown>) => {
+			const finish = (outcome: Outcome<A, unknown>) => {
 				if (settled) return;
 				settled = true;
 				this.#release();
-				resolve(s);
+				resolve(outcome);
 			};
 			this.#onAbort = (cancelled) =>
-				finish(
-					cancelled.failed ? { _tag: "die", defect: cancelled.defect } : { _tag: "interrupt" },
-				);
-			// `start` may return a plain value or a promise; both resolve here.
-			(Promise.resolve().then(start) as Promise<Awaited<A>>).then(
-				(value) => finish({ _tag: "success", value }),
-				(error) => finish(this.signal.aborted ? { _tag: "interrupt" } : { _tag: "fail", error }),
+				finish(cancelled.failed ? Outcome.die(cancelled.defect) : Outcome.interrupt());
+			this.#listen();
+			pending.then(
+				(value) => finish(Outcome.succeed(value)),
+				(error) => finish(this.signal.aborted ? Outcome.interrupt() : Outcome.fail(error)),
 			);
 		});
 	}
@@ -100,7 +129,7 @@ export class Scheduler {
 
 	/** Run every registered callback; the first throw wins. */
 	#cancel(): Cancelled {
-		const pending = this.#callbacks.splice(0);
+		const pending = this.#callbacks?.splice(0) ?? [];
 		let failed = false;
 		let defect: unknown;
 		for (const fn of pending) {
@@ -121,7 +150,7 @@ export class Scheduler {
 			this.signal.removeEventListener("abort", this.#abort);
 			this.#listening = false;
 		}
-		this.#callbacks.length = 0;
+		this.#callbacks = undefined;
 		this.#onAbort = undefined;
 	}
 }

@@ -10,7 +10,7 @@
 // a throw nobody mapped is a `die`, never a typed `fail`.
 import { type AllA, type AllE, type AllR, all } from "./all.ts";
 import type { Arm, CodeOf, Payload } from "./errors.ts";
-import { Outcome } from "./outcome.ts";
+import { isThenable, Outcome } from "./outcome.ts";
 import { Scheduler } from "./scheduler.ts";
 import { Scope } from "./scope.ts";
 import type { ServiceClass } from "./services.ts";
@@ -48,8 +48,12 @@ export class Safe<A, E, R> {
 	declare readonly _E: E;
 	declare readonly _R: R;
 
-	/** @internal Use `run`; call sites never invoke this directly. */
-	constructor(readonly body: (ctx: Ctx) => Promise<Outcome<A, E>>) {}
+	/**
+	 * @internal Use `run`; call sites never invoke this directly.
+	 * A body returns an `Outcome` when it finished synchronously, and a promise
+	 * only when something inside it is actually async.
+	 */
+	constructor(readonly body: (ctx: Ctx) => Outcome<A, E> | Promise<Outcome<A, E>>) {}
 
 	*[Symbol.iterator](): Generator<Safe<A, E, R>, A, any> {
 		return yield this;
@@ -58,11 +62,11 @@ export class Safe<A, E, R> {
 	// --- Constructors ---
 
 	static ok<A>(value: A): Safe<A, never, never> {
-		return new Safe(async () => Outcome.succeed(value));
+		return new Safe(() => Outcome.succeed(value));
 	}
 
 	static err<E>(error: E): Safe<never, E, never> {
-		return new Safe(async () => Outcome.fail(error));
+		return new Safe(() => Outcome.fail(error));
 	}
 
 	/**
@@ -80,7 +84,7 @@ export class Safe<A, E, R> {
 		mapErr?: (thrown: unknown) => E,
 	): Safe<Awaited<A>, E, never> {
 		if (isGeneratorFunction(fn)) {
-			return new Safe<Awaited<A>, E, never>(async () =>
+			return new Safe<Awaited<A>, E, never>(() =>
 				Outcome.die(
 					new TypeError(
 						"safe-ts: Safe.call got a generator function; use Safe.try(...) to sequence",
@@ -88,21 +92,12 @@ export class Safe<A, E, R> {
 				),
 			);
 		}
-		return new Safe<Awaited<A>, E, never>(async (ctx) => {
+		return new Safe<Awaited<A>, E, never>((ctx) => {
 			const scheduler = new Scheduler(ctx.signal);
-			const settled = await scheduler.settle(() => fn(scheduler));
-			switch (settled._tag) {
-				case "success":
-					return Outcome.succeed(settled.value);
-				case "fail":
-					return mapErr === undefined
-						? Outcome.die(settled.error)
-						: Outcome.fail(mapErr(settled.error));
-				case "die":
-					return Outcome.die(settled.defect);
-				case "interrupt":
-					return Outcome.interrupt();
-			}
+			const settled = scheduler.settle(() => fn(scheduler));
+			return isThenable(settled)
+				? settled.then((s) => fromSettled(s, mapErr))
+				: fromSettled(settled, mapErr);
 		});
 	}
 
@@ -140,19 +135,20 @@ export class Safe<A, E, R> {
 		acquire: Safe<A, E, R>,
 		release: (resource: A, exit: Outcome<unknown, unknown>) => void | PromiseLike<void>,
 	): Safe<A, E, R> {
-		return new Safe<A, E, R>(async (ctx) => {
-			const exit = await exec(acquire, { ...ctx, signal: NEVER_ABORTED });
-			if (exit._tag !== "success") return exit;
-			ctx.scope.add((scopeOutcome) => release(exit.value, scopeOutcome));
-			return ctx.signal.aborted ? Outcome.interrupt() : exit;
+		return new Safe<A, E, R>((ctx) => {
+			const exit = exec(acquire, { ...ctx, signal: NEVER_ABORTED });
+			return isThenable(exit)
+				? exit.then((e) => afterAcquire(e, ctx, release))
+				: afterAcquire(exit, ctx, release);
 		});
 	}
 
 	/** Run in a fresh scope; its finalizers run (LIFO) as soon as it exits. */
 	static scoped<A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R> {
-		return new Safe<A, E, R>(async (ctx) => {
+		return new Safe<A, E, R>((ctx) => {
 			const scope = new Scope();
-			return scope.close(await exec(safe, { ...ctx, scope }));
+			const exit = exec(safe, { ...ctx, scope });
+			return isThenable(exit) ? exit.then((e) => scope.close(e)) : scope.close(exit);
 		});
 	}
 
@@ -166,12 +162,20 @@ export class Safe<A, E, R> {
 		code: K,
 		f: (payload: Payload<E, K>) => Safe<B, E2, R2>,
 	): Safe<A | B, Exclude<E, Arm<E, K>> | E2, R | R2> {
-		return new Safe<A | B, Exclude<E, Arm<E, K>> | E2, R | R2>(async (ctx) => {
-			const exit = await exec(this, ctx);
-			if (exit._tag === "fail" && hasTag(exit.error, code)) {
-				return exec(f(payloadOf(exit.error, code) as Payload<E, K>), ctx);
+		return new Safe<A | B, Exclude<E, Arm<E, K>> | E2, R | R2>((ctx) => {
+			const exit = exec(this, ctx);
+			if (!isThenable(exit)) {
+				if (exit._tag === "fail" && hasTag(exit.error, code)) {
+					return exec(f(payloadOf(exit.error, code) as Payload<E, K>), ctx);
+				}
+				return exit as Outcome<A, Exclude<E, Arm<E, K>>>;
 			}
-			return exit as Outcome<A, Exclude<E, Arm<E, K>>>;
+			return exit.then((e) => {
+				if (e._tag === "fail" && hasTag(e.error, code)) {
+					return exec(f(payloadOf(e.error, code) as Payload<E, K>), ctx);
+				}
+				return e as Outcome<A, Exclude<E, Arm<E, K>>>;
+			});
 		});
 	}
 }
@@ -197,13 +201,54 @@ const payloadOf = (e: unknown, code: string): unknown =>
  * places a throw is classified: anything that escapes a body or a service
  * `init` is a defect. An already-aborted signal stops work before it starts.
  */
-export const exec = async <A, E>(safe: Safe<A, E, unknown>, ctx: Ctx): Promise<Outcome<A, E>> => {
+export const exec = <A, E>(
+	safe: Safe<A, E, unknown>,
+	ctx: Ctx,
+): Outcome<A, E> | Promise<Outcome<A, E>> => {
 	if (ctx.signal.aborted) return Outcome.interrupt();
+	let out: Outcome<A, E> | Promise<Outcome<A, E>>;
 	try {
-		return await safe.body(ctx);
+		out = safe.body(ctx);
 	} catch (defect) {
 		return Outcome.die(defect);
 	}
+	// A rejection is a defect, exactly as a throw from the body is.
+	return isThenable(out)
+		? out.then(
+				(o) => o,
+				(defect) => Outcome.die(defect),
+			)
+		: out;
+};
+
+/** What `Scheduler.settle` reported, in `Safe.call`'s vocabulary. */
+const fromSettled = <A, E>(
+	settled: Outcome<A, unknown>,
+	mapErr?: (thrown: unknown) => E,
+): Outcome<A, E> => {
+	switch (settled._tag) {
+		case "success":
+			return settled;
+		case "fail":
+			return mapErr === undefined
+				? Outcome.die(settled.error)
+				: Outcome.fail(mapErr(settled.error));
+		case "die":
+			return Outcome.die(settled.defect);
+		case "interrupt":
+			return Outcome.interrupt();
+	}
+};
+
+/** Register the release once the resource exists; nothing runs on failure. */
+const afterAcquire = <A, E>(
+	exit: Outcome<A, E>,
+	ctx: Ctx,
+	release: (resource: A, exit: Outcome<unknown, unknown>) => void | PromiseLike<void>,
+): Outcome<A, E> => {
+	if (exit._tag !== "success") return exit;
+	ctx.scope.add((scopeOutcome) => release(exit.value, scopeOutcome));
+	return ctx.signal.aborted ? Outcome.interrupt() : exit;
 };
 
 export interface RunOptions {
@@ -220,13 +265,15 @@ export const run = async <A, E>(
 	options: RunOptions = {},
 ): Promise<Outcome<A, E>> => {
 	const root = new Scope();
-	const exit = await exec(safe, {
-		signal: options.signal ?? new AbortController().signal,
+	// No signal given: a shared, never-aborted one. A fresh AbortController per
+	// run costs ~134 ns and is indistinguishable from this (nothing can abort it).
+	const exit = exec(safe, {
+		signal: options.signal ?? NEVER_ABORTED,
 		scope: root,
 		lookup: rootLookup,
 		path: [],
 	});
-	return root.close(exit);
+	return isThenable(exit) ? exit.then((o) => root.close(o)) : Promise.resolve(root.close(exit));
 };
 
 // --- Sequencing ---
@@ -243,17 +290,63 @@ export type AnyGenerator =
 	| Generator<unknown, unknown, unknown>
 	| AsyncGenerator<unknown, unknown, unknown>;
 
-/** One driver for both kinds: `await` on a sync step is a no-op. */
-export const drive = async (it: AnyGenerator, ctx: Ctx): Promise<Outcome<unknown, unknown>> => {
+/**
+ * One driver for both kinds. The sync loop handles a generator whose steps all
+ * resolve to values — the common case — without allocating a promise per step;
+ * the moment a step is a promise (an async generator, or a service lookup) the
+ * async continuation takes over and the rest of the body runs there.
+ */
+export const drive = (
+	it: AnyGenerator,
+	ctx: Ctx,
+): Outcome<unknown, unknown> | Promise<Outcome<unknown, unknown>> => {
 	let input: unknown;
-	while (true) {
+	for (;;) {
 		if (ctx.signal.aborted) return close(it, Outcome.interrupt());
 		// A throw from the body propagates to `exec`, which makes it a `die`.
-		const step = await it.next(input);
+		const step = it.next(input);
+		if (isThenable(step)) return driveFromStep(it, ctx, step);
+		if (step.done) return Outcome.succeed(step.value);
+		const resolved = resolveYield(step.value, ctx);
+		if (isThenable(resolved)) return driveFromYield(it, ctx, resolved);
+		if (resolved._tag !== "success") return close(it, resolved);
+		input = resolved.value;
+	}
+};
+
+/** Continue in async mode: the next generator step was a promise. */
+const driveFromStep = async (
+	it: AnyGenerator,
+	ctx: Ctx,
+	pending: PromiseLike<IteratorResult<unknown, unknown>>,
+): Promise<Outcome<unknown, unknown>> => {
+	let step = await pending;
+	let input: unknown;
+	for (;;) {
+		if (ctx.signal.aborted) return close(it, Outcome.interrupt());
 		if (step.done) return Outcome.succeed(step.value);
 		const resolved = await resolveYield(step.value, ctx);
-		if ("stop" in resolved) return close(it, resolved.stop);
-		input = resolved.next;
+		if (resolved._tag !== "success") return close(it, resolved);
+		input = resolved.value;
+		step = await it.next(input);
+	}
+};
+
+/** Continue in async mode: a yielded value resolved to a promise. */
+const driveFromYield = async (
+	it: AnyGenerator,
+	ctx: Ctx,
+	pending: PromiseLike<Outcome<unknown, unknown>>,
+): Promise<Outcome<unknown, unknown>> => {
+	let resolved = await pending;
+	let input: unknown;
+	for (;;) {
+		if (ctx.signal.aborted) return close(it, Outcome.interrupt());
+		if (resolved._tag !== "success") return close(it, resolved);
+		input = resolved.value;
+		const step = await it.next(input);
+		if (step.done) return Outcome.succeed(step.value);
+		resolved = await resolveYield(step.value, ctx);
 	}
 };
 
@@ -263,9 +356,32 @@ export const drive = async (it: AnyGenerator, ctx: Ctx): Promise<Outcome<unknown
  * `Scope.close` already uses, so a body that failed keeps its declared error
  * instead of having it overwritten by the cleanup.
  */
-const close = async (it: AnyGenerator, outcome: Outcome<never, unknown>) => {
+const close = (
+	it: AnyGenerator,
+	outcome: Outcome<unknown, unknown>,
+): Outcome<unknown, unknown> | Promise<Outcome<unknown, unknown>> => {
 	let defect: { readonly value: unknown } | undefined;
-	while (true) {
+	for (;;) {
+		let closed: IteratorResult<unknown, unknown>;
+		try {
+			closed = it.return(undefined) as IteratorResult<unknown, unknown>;
+		} catch (thrown) {
+			defect ??= { value: thrown };
+			break;
+		}
+		if (isThenable(closed)) return closeAsync(it, outcome, defect);
+		if (closed.done) break;
+	}
+	return closedOutcome(outcome, defect);
+};
+
+/** The async continuation of `close`: an async generator's `return` is a promise. */
+const closeAsync = async (
+	it: AnyGenerator,
+	outcome: Outcome<unknown, unknown>,
+	defect: { readonly value: unknown } | undefined,
+): Promise<Outcome<unknown, unknown>> => {
+	for (;;) {
 		try {
 			const closed = await it.return(undefined);
 			if (closed.done) break;
@@ -274,24 +390,29 @@ const close = async (it: AnyGenerator, outcome: Outcome<never, unknown>) => {
 			break;
 		}
 	}
-	return defect !== undefined && outcome._tag === "success" ? Outcome.die(defect.value) : outcome;
+	return closedOutcome(outcome, defect);
 };
 
-type Step = { readonly next: unknown } | { readonly stop: Outcome<never, unknown> };
+/** A throwing cleanup is a defect only when the outcome was a success. */
+const closedOutcome = (
+	outcome: Outcome<unknown, unknown>,
+	defect: { readonly value: unknown } | undefined,
+): Outcome<unknown, unknown> =>
+	defect !== undefined && outcome._tag === "success" ? Outcome.die(defect.value) : outcome;
 
 const isServiceClass = (y: unknown): y is ServiceClass =>
 	typeof y === "function" && typeof (y as { init?: unknown }).init === "function";
 
-const resolveYield = async (y: unknown, ctx: Ctx): Promise<Step> => {
-	if (y instanceof Safe) {
-		const out = await exec(y, ctx);
-		return out._tag === "success" ? { next: out.value } : { stop: out };
-	}
-	if (isServiceClass(y)) {
-		const out = await ctx.lookup(y, ctx.path);
-		return out._tag === "success" ? { next: out.value } : { stop: out };
-	}
-	return {
-		stop: Outcome.die(new TypeError("safe-ts: Safe.try yielded a value that is not yieldable")),
-	};
+/**
+ * A yielded value resolves to the Outcome that ends the body when it is not a
+ * success; a success continues with `out.value`. Returning the Outcome itself
+ * (rather than a wrapper object) keeps one allocation out of every yield.
+ */
+const resolveYield = (
+	y: unknown,
+	ctx: Ctx,
+): Outcome<unknown, unknown> | Promise<Outcome<unknown, unknown>> => {
+	if (y instanceof Safe) return exec(y, ctx);
+	if (isServiceClass(y)) return ctx.lookup(y, ctx.path);
+	return Outcome.die(new TypeError("safe-ts: Safe.try yielded a value that is not yieldable"));
 };

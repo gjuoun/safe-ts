@@ -210,6 +210,27 @@ Each file under `examples/` runs standalone (`bun run <file>`), easy to hard:
 | `examples/05-concurrency-and-cleanup.ts` | `Safe.all`, `Scheduler.sleep`, `acquireRelease`, `scoped` |
 | `examples/user-service.ts` | all of it end to end with `Runtime.make` and `Scheduler.onCancel` |
 
+## Performance
+
+Measured on the same four-step program — parse JSON, look up a name, recover a
+`not_found` — with the handler built once and executed per call (the shape a
+server actually has). Bun 1.3.14, arm64, 200,000 iterations, best of 5:
+
+| | success | recovered |
+|---|---|---|
+| safe-ts | 465 ns/op | 550 ns/op |
+| Effect (`runPromise`) | 455 ns/op | 530 ns/op |
+| neverthrow (eager) | 335 ns/op | 360 ns/op |
+
+The harness is `bun run /tmp/jun/bench/bench4.ts` — same program, three
+libraries, parity asserted first (all three print the same three results).
+
+Two rules keep it there: a body that finished synchronously returns an
+`Outcome`, not a promise (`Safe.body`, `exec`, `drive` and `Scope.close` all
+take the sync branch), and the abort listener is attached only when something
+can observe cancellation. `Runtime.run` still returns a `Promise` — one per run,
+at the boundary.
+
 ## Develop
 
 ```sh
