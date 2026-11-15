@@ -44,6 +44,7 @@ export type {
 	ErrorFactories,
 	ErrorSpec,
 	ErrorsOf,
+	FailureOf,
 	Payload,
 	TaggedError,
 } from "./errors.ts";

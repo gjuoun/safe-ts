@@ -59,6 +59,29 @@ console.log(await Runtime.run(tolerant));
 // { _tag: "success", value: { name: "guest-u2" } }
 ```
 
+## 给函数真正会返回的变体命名
+
+一个方法很少会产生整个 catalog。把变体在 catalog 旁边命名一次，签名就能准确说出
+"它只可能这样失败" —— 而且编译器会盯着，因为 `Safe` 在 `E` 上协变：函数体多产生一个
+签名里没写的变体，就不再编译。
+
+```ts
+import { Errors, Safe, type FailureOf } from "@gjuoun/safe-ts";
+
+const userError = Errors.define({
+  not_found: (id: string) => ({ status: 404, message: `no user ${id}`, id }),
+});
+
+// 单键的"带 tag 那一层"，只命名一次。`ReturnType<typeof userError.not_found>` 是同一个类型。
+export type UserNotFound = FailureOf<typeof userError, "not_found">;
+
+declare const load: (id: string) => Safe<{ name: string }, UserNotFound>;
+```
+
+`FailureOf` 收的是 **catalog**，不是联合，所以 `FailureOf<typeof userError, "not_found">`
+就是带 tag 的那层 `{ not_found: { … } }` —— 运行时真正产生的形状。反过来索引联合
+（`ErrorsOf<typeof userError>["not_found"]`）只会得到不带 tag 的 payload，赋不进 `Safe` 的失败通道。
+
 ## 渲染给人看
 
 ```ts

@@ -28,6 +28,17 @@ export type ErrorsOf<F extends Record<string, (...args: never[]) => unknown>> = 
 	F[keyof F]
 >;
 
+/**
+ * One variant of a catalog, named by its tag: `FailureOf<typeof userError, "not_found">`.
+ * The same type as `ReturnType<typeof userError.not_found>` — this spelling is what a
+ * signature reads best with, and it is how you say "this method can only fail *this* way"
+ * instead of carrying the whole catalog union.
+ */
+export type FailureOf<
+	C extends Record<string, (...args: never[]) => object>,
+	K extends keyof C & string,
+> = ReturnType<C[K]>;
+
 /** The tag of each arm, inferred from its single key. */
 export type CodeOf<E> = E extends Record<infer C extends string, unknown> ? C : never;
 
