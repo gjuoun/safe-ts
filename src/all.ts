@@ -4,8 +4,13 @@
 // controller). The first child to fail or die aborts the controller, so its
 // siblings stop at their next await, and its outcome becomes the result. An
 // outer abort interrupts every child.
-import { Outcome } from "./outcome.ts";
-import { exec, Safe } from "./safe.ts";
+//
+// The common case is synchronous children on a run nobody can abort: there the
+// child signal is the local one (no AbortSignal.any, which installs a composite
+// listener) and the result is returned without Promise.all or an async closure
+// per child.
+import { isThenable, Outcome } from "./outcome.ts";
+import { type Ctx, exec, NEVER_ABORTED, Safe } from "./safe.ts";
 
 type AnySafe = Safe<any, any, any>;
 
@@ -21,22 +26,33 @@ type ReqOf<S> = S extends Safe<any, any, infer R> ? R : never;
 export const all = <const T extends readonly AnySafe[]>(
 	safes: T,
 ): Safe<AllA<T>, AllE<T>, AllR<T>> =>
-	new Safe(async (ctx) => {
+	new Safe<AllA<T>, AllE<T>, AllR<T>>((ctx) => {
 		const local = new AbortController();
-		const child = { ...ctx, signal: AbortSignal.any([ctx.signal, local.signal]) };
+		const child: Ctx = {
+			...ctx,
+			signal:
+				ctx.signal === NEVER_ABORTED ? local.signal : AbortSignal.any([ctx.signal, local.signal]),
+		};
 		let first: Outcome<never, AllE<T>> | undefined;
-		const exits = await Promise.all(
-			safes.map(async (safe) => {
-				const exit = await exec(safe, child);
-				if (exit._tag !== "success" && first === undefined) {
-					first = exit;
-					local.abort();
-				}
-				return exit;
-			}),
-		);
-		if (first !== undefined) return first;
-		return Outcome.succeed(
-			exits.map((exit) => (exit._tag === "success" ? exit.value : undefined)) as AllA<T>,
-		);
+		const note = (exit: Outcome<unknown, unknown>) => {
+			if (exit._tag !== "success" && first === undefined) {
+				first = exit as Outcome<never, AllE<T>>;
+				local.abort();
+			}
+			return exit;
+		};
+		const collect = (results: Outcome<unknown, unknown>[]) =>
+			first !== undefined
+				? first
+				: Outcome.succeed(results.map((e) => (e as { value: unknown }).value) as AllA<T>);
+
+		const exits = safes.map((safe) => {
+			const out = exec(safe, child);
+			return isThenable(out) ? out.then(note, (defect) => note(Outcome.die(defect))) : note(out);
+		});
+		// Every child finished on this tick: no Promise.all, no extra allocation.
+		if (exits.every((exit) => !isThenable(exit))) {
+			return collect(exits as Outcome<unknown, unknown>[]);
+		}
+		return Promise.all(exits).then(collect);
 	});
