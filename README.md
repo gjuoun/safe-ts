@@ -2,9 +2,8 @@
 
 Typed errors and cancellable effects for TypeScript — without a fiber runtime.
 
-📖 Docs: [English](./docs/en/README.md) · [中文](./docs/zh/README.md)
-
-<details>
+📖 [Docs](./docs/README.md) — [English](./docs/en/README.md) · [中文](./docs/zh/README.md) ·
+[examples](./examples) · [benchmark](./benchmark)
 <summary><b>Quick start</b> — install, one Safe, what it gives you</summary>
 
 ```sh
@@ -53,16 +52,6 @@ await Runtime.run(getUser("u1"));
 ESM only, zero runtime dependencies, one bundle and one `.d.ts`. Runs on Node ≥ 20.3 and Bun — `npm install` or `bun add` both work.
 
 </details>
-
-## Docs
-
-[Tutorial, eight chapters](./docs/README.md) — [English](./docs/en/README.md) ·
-[中文](./docs/zh/README.md). Every code block in the docs and in this README is compiled
-by `bun run docs:check`.
-
-Runnable examples: [HTTP and DB cancellation](./examples/04-scheduler.ts) ·
-[five concurrent requests](./examples/06-parallel-requests.ts) ·
-[`examples/`](./examples). [`benchmark/`](./benchmark) compares against Effect.
 
 ## Measured
 
