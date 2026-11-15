@@ -4,7 +4,7 @@ import {
 	get,
 	type InitError,
 	type Instance,
-	override,
+	instance,
 	provide,
 } from "../../src/services.ts";
 import { assertType, type Equal } from "./assert.ts";
@@ -87,12 +87,12 @@ assertType<Equal<typeof partial, Safe<string[], "empty" | DbErr, typeof Config>>
 const nested = provide(partial, [Config]);
 assertType<Equal<typeof nested, Safe<string[], "empty" | DbErr, never>>>();
 
-const faked = provide(program, [UserRepo, override(Db, new Db("fake://"))]);
+const faked = provide(program, [UserRepo, instance(Db, new Db("fake://"))]);
 assertType<Equal<typeof faked, Safe<string[], "empty", never>>>();
 
 export const typeOnly = () => {
 	// @ts-expect-error Config is still required
 	run(provide(program, [UserRepo, Db]));
-	// @ts-expect-error an override must be an instance of the class
-	override(Db, { url: 1 });
+	// @ts-expect-error an instance entry must be an instance of the class
+	instance(Db, { url: 1 });
 };

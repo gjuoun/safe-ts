@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Outcome } from "../src/outcome.ts";
 import { run, Safe } from "../src/safe.ts";
-import { get, override, provide } from "../src/services.ts";
+import { get, instance, provide } from "../src/services.ts";
 
 const makeClasses = () => {
 	const log: string[] = [];
@@ -222,7 +222,7 @@ describe("class services", () => {
 		expect(log).toEqual(["Db"]);
 	});
 
-	test("override replaces a class", async () => {
+	test("an instance replaces a class", async () => {
 		const { Db, UserRepo, Cache, Config } = makeClasses();
 		class FakeDb extends Db {
 			override query(q: string) {
@@ -234,7 +234,7 @@ describe("class services", () => {
 			return repo.db.query("y");
 		});
 		const exit = await run(
-			provide(program, [UserRepo, Cache, Config, override(Db, new FakeDb("unused"))]),
+			provide(program, [UserRepo, Cache, Config, instance(Db, new FakeDb("unused"))]),
 		);
 		expect(exit).toEqual(Outcome.succeed("fake?y"));
 	});

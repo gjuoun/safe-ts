@@ -68,29 +68,32 @@ export type DepsOf<C> = YieldRequirement<GenYield<InitOut<C>>>;
 /** The errors `init` can fail with: the failures it yields. */
 export type InitError<C> = YieldError<GenYield<InitOut<C>>>;
 
-/** A ready instance standing in for a class (tests, fakes). */
-export interface Override<C extends ServiceClass> {
-	readonly _tag: "Override";
+/** A ready instance for one class: no `init`, no deps, no errors, no cleanup. */
+export interface InstanceEntry<C extends ServiceClass> {
+	readonly _tag: "Instance";
 	readonly service: C;
 	readonly instance: Instance<C>;
 }
 
-export type Entry = ServiceClass | Override<ServiceClass>;
+export type Entry = ServiceClass | InstanceEntry<ServiceClass>;
 
-export type ClassOf<En> = En extends Override<infer C> ? C : En;
-export type EntryDeps<En> = En extends Override<ServiceClass> ? never : DepsOf<En>;
-export type EntryError<En> = En extends Override<ServiceClass> ? never : InitError<En>;
+export type ClassOf<En> = En extends InstanceEntry<infer C> ? C : En;
+export type EntryDeps<En> = En extends InstanceEntry<ServiceClass> ? never : DepsOf<En>;
+export type EntryError<En> = En extends InstanceEntry<ServiceClass> ? never : InitError<En>;
 
 /** Ask for a service inside Safe.try or an `init`: `const db = yield* get(Db)`. */
 export function* get<C extends ServiceClass>(service: C): Generator<C, Instance<C>, any> {
 	return yield service;
 }
 
-/** Use `instance` for class `service` instead of calling its `init`. */
-export const override = <C extends ServiceClass>(
+/**
+ * A ready instance for class `service`, used instead of calling its `init`:
+ * `provide(program, [Db, instance(Config, new Config(url))])`.
+ */
+export const instance = <C extends ServiceClass>(
 	service: C,
-	instance: Instance<C>,
-): Override<C> => ({ _tag: "Override", service, instance });
+	value: Instance<C>,
+): InstanceEntry<C> => ({ _tag: "Instance", service, instance: value });
 
 /** Satisfy class requirements of `safe` with the listed classes. */
 export const provide = <A, E, R, const P extends readonly Entry[]>(
@@ -105,7 +108,7 @@ export const provide = <A, E, R, const P extends readonly Entry[]>(
 		},
 	);
 
-const isOverride = (e: Entry): e is Override<ServiceClass> => typeof e !== "function";
+const isInstance = (e: Entry): e is InstanceEntry<ServiceClass> => typeof e !== "function";
 
 export const nameOf = (service: ServiceClass): string =>
 	(service as { name?: string }).name || "anonymous";
@@ -123,7 +126,7 @@ const isGenerator = (value: unknown): value is AnyGenerator =>
  */
 export const makeLookup = (entries: readonly Entry[], ctx: Ctx, scope: Scope): Lookup => {
 	const own = new Map<ServiceClass, Entry>();
-	for (const entry of entries) own.set(isOverride(entry) ? entry.service : entry, entry);
+	for (const entry of entries) own.set(isInstance(entry) ? entry.service : entry, entry);
 	const memo = new Map<ServiceClass, Promise<Outcome<unknown, unknown>>>();
 	const outer = ctx.lookup;
 
@@ -147,7 +150,7 @@ export const makeLookup = (entries: readonly Entry[], ctx: Ctx, scope: Scope): L
 		entry: Entry,
 		path: readonly ServiceClass[],
 	): Promise<Outcome<unknown, unknown>> => {
-		if (isOverride(entry)) return Outcome.succeed(entry.instance);
+		if (isInstance(entry)) return Outcome.succeed(entry.instance);
 		// init runs uninterruptibly, resolving its dep lookups through this lookup.
 		const initCtx: Ctx = { ...ctx, signal: NEVER_ABORTED, lookup, path };
 		// `init` is always a generator, so one driver runs every lifecycle body.

@@ -3,7 +3,7 @@
 // One effect system: a lazy `Safe<A, E, R>`.
 //   boundaries: Safe.call               (a mapper makes the throw typed)
 //   sequencing: Safe.try
-//   services:   get, provide, override, makeRuntime
+//   services:   get, provide, instance, makeRuntime
 //   errors:     defineErrors, renderError, Safe.catchTag
 //   outcome:    Outcome
 //   cleanup:    Safe.acquireRelease, Safe.scoped
@@ -32,8 +32,8 @@ export {
 	get,
 	type InitError,
 	type Instance,
-	type Override,
-	override,
+	type InstanceEntry,
+	instance,
 	provide,
 	type ServiceClass,
 } from "./services.ts";

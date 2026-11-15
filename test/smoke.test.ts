@@ -14,7 +14,7 @@ test("entry exports the one surface", () => {
 		"Scheduler",
 		"get",
 		"provide",
-		"override",
+		"instance",
 	]) {
 		expect(name in safe).toBe(true);
 	}
