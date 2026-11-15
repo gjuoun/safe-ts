@@ -28,13 +28,13 @@ type StorageError = ErrorsOf<typeof storageError>;
 const store: Readonly<Record<string, string>> = { readme: "hello" };
 
 // Sync side: a miss is a typed failure, not a thrown exception.
-const getObject = (key: string): Safe<string, StorageError, never> => {
+const getObject = (key: string): Safe<string, StorageError> => {
 	const value = store[key];
 	return value === undefined ? Safe.err(storageError.not_found(key)) : Safe.ok(value);
 };
 
 // Async side: a rejection becomes a typed failure, with the raw reason as `cause`.
-const fetchObject = (key: string): Safe<string, StorageError, never> =>
+const fetchObject = (key: string): Safe<string, StorageError> =>
 	Safe.call(
 		() =>
 			new Promise<string>((_, reject) =>

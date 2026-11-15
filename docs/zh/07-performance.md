@@ -1,6 +1,6 @@
-# 8 · 性能，以及它适合什么场景
+# 7 · 性能，以及它适合什么场景
 
-数据来自仓库里的 `bench/`（`bun run bench`）：十个场景，两边都在每次调用时构建程序，
+数据来自仓库里的 `benchmark/`（`bun run bench`）：十个场景，两边都在每次调用时构建程序，
 五次试验，只有 min–max 区间不重叠才算"赢"。
 
 | 场景 | safe-ts | Effect `runPromiseExit` | 结论 |

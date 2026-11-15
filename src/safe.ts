@@ -1,21 +1,20 @@
-// safe.ts — the core type: a lazy Safe<A, E, R>.
+// safe.ts — the core type: a lazy Safe<A, E>.
 //
 // A Safe is a description of work: nothing runs until `run`. It succeeds with
-// A, fails with a typed E, and needs the services in R (a union of service
-// classes, see services.ts). `run` only accepts R = never, so a missing
-// service is a compile error rather than a runtime "service not found".
+// A and fails with a typed E. Dependencies are plain constructor arguments:
+// there is no requirement channel to thread, so a missing dependency is a
+// missing argument — a compile error at the call site.
 //
 // Every child Safe executes through `exec`, the one place that catches a throw
-// from a Safe.try body or a service `init`. `Safe.call` catches its own call, so
+// from a Safe.try body. `Safe.call` catches its own call, so
 // a throw nobody mapped is a `die`, never a typed `fail`.
-import { type AllA, type AllE, type AllR, type AllSettledA, all, allSettled } from "./all.ts";
+import { type AllA, type AllE, type AllSettledA, all, allSettled } from "./all.ts";
 import { type Clock, Clocks } from "./clock.ts";
 import { delay, type ForEachOptions, forEach, type RaceOptions, race } from "./combinators.ts";
 import type { Arm } from "./errors.ts";
 import { isThenable, Outcome } from "./outcome.ts";
-import { NEVER_ABORTED, Scheduler } from "./scheduler.ts";
+import { CallScheduler, NEVER_ABORTED, type Scheduler } from "./scheduler.ts";
 import { Scope } from "./scope.ts";
-import type { ServiceClass } from "./services.ts";
 
 /** Runtime context threaded through every Safe of one run. Internal. */
 export interface Ctx {
@@ -28,37 +27,20 @@ export interface Ctx {
 	readonly scope: Scope;
 	/** The run's time source: every timer (`delay`, `timeout`, `retry`) reads it. */
 	readonly clock: Clock;
-	/** Resolves a class service to its instance (see services.ts). */
-	readonly lookup: Lookup;
-	/** Classes whose `init` is running, outermost first (cycle detection). */
-	readonly path: readonly ServiceClass[];
 }
-
-/** Find (building on first use) the instance for a class service. */
-export type Lookup = (
-	service: ServiceClass,
-	path: readonly ServiceClass[],
-) => Promise<Outcome<unknown, unknown>>;
-
-/** The lookup outside every `provide`: nothing is provided here. */
-export const rootLookup: Lookup = async (service) =>
-	Outcome.die(
-		new Error(`safe-ts: service "${(service as { name?: string }).name}" was not provided`),
-	);
 
 /** A signal that never fires: used where work must not be interrupted. */
 export { NEVER_ABORTED } from "./scheduler.ts";
 
 /** A `Safe → Safe` transform — what `pipe` folds and every combinator returns. */
 export type SafeOp<S extends AnySafe = AnySafe> = (safe: S) => AnySafe;
-type AnySafe = Safe<any, any, any>;
+type AnySafe = Safe<any, any>;
 
-export class Safe<A, E, R> {
+export class Safe<A, E> {
 	readonly _tag = "Safe" as const;
 	/** Phantom slots: they only carry the type parameters. */
 	declare readonly _A: A;
 	declare readonly _E: E;
-	declare readonly _R: R;
 
 	/**
 	 * @internal Use `run`; call sites never invoke this directly.
@@ -79,7 +61,7 @@ export class Safe<A, E, R> {
 	 * it sends back. A plain iterator rather than a generator so `PureSafe` can
 	 * narrow it to a zero-yield completion.
 	 */
-	[Symbol.iterator](): Iterator<Safe<A, E, R>, A, any> {
+	[Symbol.iterator](): Iterator<Safe<A, E>, A, any> {
 		return new SafeIterator(this);
 	}
 
@@ -88,17 +70,17 @@ export class Safe<A, E, R> {
 	 * over `Symbol.iterator`, which spares it the async-from-sync conversion on
 	 * every hop (measured 425 → 354 ns per hop).
 	 */
-	[Symbol.asyncIterator](): AsyncIterator<Safe<A, E, R>, A, any> {
+	[Symbol.asyncIterator](): AsyncIterator<Safe<A, E>, A, any> {
 		return new SafeAsyncIterator(this);
 	}
 
 	// --- Constructors ---
 
-	static ok<A>(value: A): Safe<A, never, never> {
+	static ok<A>(value: A): Safe<A, never> {
 		return new PureSafe(value);
 	}
 
-	static err<E>(error: E): Safe<never, E, never> {
+	static err<E>(error: E): Safe<never, E> {
 		return new Safe(() => Outcome.fail(error));
 	}
 
@@ -107,17 +89,17 @@ export class Safe<A, E, R> {
 	 * `mapErr` and a throw or rejection becomes `fail(mapErr(thrown))`; omit it
 	 * and it is a defect (`die`). `fn` receives the run's Scheduler.
 	 */
-	static call<A>(fn: (scheduler: Scheduler) => A | PromiseLike<A>): Safe<Awaited<A>, never, never>;
+	static call<A>(fn: (scheduler: Scheduler) => A | PromiseLike<A>): Safe<Awaited<A>, never>;
 	static call<A, E>(
 		fn: (scheduler: Scheduler) => A | PromiseLike<A>,
 		mapErr: (thrown: unknown) => E,
-	): Safe<Awaited<A>, E, never>;
+	): Safe<Awaited<A>, E>;
 	static call<A, E>(
 		fn: (scheduler: Scheduler) => A | PromiseLike<A>,
 		mapErr?: (thrown: unknown) => E,
-	): Safe<Awaited<A>, E, never> {
+	): Safe<Awaited<A>, E> {
 		if (isGeneratorFunction(fn)) {
-			return new Safe<Awaited<A>, E, never>(() =>
+			return new Safe<Awaited<A>, E>(() =>
 				Outcome.die(
 					new TypeError(
 						"safe-ts: Safe.call got a generator function; use Safe.try(...) to sequence",
@@ -125,8 +107,8 @@ export class Safe<A, E, R> {
 				),
 			);
 		}
-		const call = new Safe<Awaited<A>, E, never>((ctx) => {
-			const scheduler = new Scheduler(ctx.signal, ctx.clock, ctx.deferInterrupt === true);
+		const call = new Safe<Awaited<A>, E>((ctx) => {
+			const scheduler = new CallScheduler(ctx.signal, ctx.clock, ctx.deferInterrupt === true);
 			let result: A | PromiseLike<A>;
 			try {
 				result = fn(scheduler);
@@ -157,13 +139,9 @@ export class Safe<A, E, R> {
 	 * per yielded step. The value comes back as `TNext`, so it needs a cast —
 	 * `const n = (yield getUser(id)) as User`.
 	 */
-	static try<Y extends Yieldable, T>(
-		body: () => Generator<Y, T, any>,
-	): Safe<T, YieldError<Y>, YieldRequirement<Y>>;
-	static try<Y extends Yieldable, T>(
-		body: () => AsyncGenerator<Y, T, any>,
-	): Safe<T, YieldError<Y>, YieldRequirement<Y>>;
-	static try(body: () => AnyGenerator): Safe<unknown, unknown, unknown> {
+	static try<Y extends Yieldable, T>(body: () => Generator<Y, T, any>): Safe<T, YieldError<Y>>;
+	static try<Y extends Yieldable, T>(body: () => AsyncGenerator<Y, T, any>): Safe<T, YieldError<Y>>;
+	static try(body: () => AnyGenerator): Safe<unknown, unknown> {
 		const sequence = new Safe((ctx) => drive(body(), ctx));
 		// `drive` converts every async rejection into an Outcome, so `exec` need
 		// not wrap the promise it returns (see `sealed`).
@@ -184,35 +162,24 @@ export class Safe<A, E, R> {
 	 * may also arrive in an array, `Safe.pipe(safe, [catchTag("not_found", h)])`.
 	 * Two or more ops in one array are deliberately not offered: TypeScript infers
 	 * a tuple's elements in a single pass, so a generic op there collapses to
-	 * `any` and the `R` slot silently stops tracking the services still needed.
+	 * `any` and the failure channel silently stops tracking.
 	 */
-	static pipe<A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R>;
-	static pipe<A, E, R, T1 extends AnySafe>(
-		safe: Safe<A, E, R>,
-		op1: (safe: Safe<A, E, R>) => T1,
-	): T1;
-	static pipe<A, E, R, T1 extends AnySafe, T2 extends AnySafe>(
-		safe: Safe<A, E, R>,
-		op1: (safe: Safe<A, E, R>) => T1,
+	static pipe<A, E>(safe: Safe<A, E>): Safe<A, E>;
+	static pipe<A, E, T1 extends AnySafe>(safe: Safe<A, E>, op1: (safe: Safe<A, E>) => T1): T1;
+	static pipe<A, E, T1 extends AnySafe, T2 extends AnySafe>(
+		safe: Safe<A, E>,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 	): T2;
-	static pipe<A, E, R, T1 extends AnySafe, T2 extends AnySafe, T3 extends AnySafe>(
-		safe: Safe<A, E, R>,
-		op1: (safe: Safe<A, E, R>) => T1,
+	static pipe<A, E, T1 extends AnySafe, T2 extends AnySafe, T3 extends AnySafe>(
+		safe: Safe<A, E>,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 		op3: (safe: T2) => T3,
 	): T3;
-	static pipe<
-		A,
-		E,
-		R,
-		T1 extends AnySafe,
-		T2 extends AnySafe,
-		T3 extends AnySafe,
-		T4 extends AnySafe,
-	>(
-		safe: Safe<A, E, R>,
-		op1: (safe: Safe<A, E, R>) => T1,
+	static pipe<A, E, T1 extends AnySafe, T2 extends AnySafe, T3 extends AnySafe, T4 extends AnySafe>(
+		safe: Safe<A, E>,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 		op3: (safe: T2) => T3,
 		op4: (safe: T3) => T4,
@@ -220,15 +187,14 @@ export class Safe<A, E, R> {
 	static pipe<
 		A,
 		E,
-		R,
 		T1 extends AnySafe,
 		T2 extends AnySafe,
 		T3 extends AnySafe,
 		T4 extends AnySafe,
 		T5 extends AnySafe,
 	>(
-		safe: Safe<A, E, R>,
-		op1: (safe: Safe<A, E, R>) => T1,
+		safe: Safe<A, E>,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 		op3: (safe: T2) => T3,
 		op4: (safe: T3) => T4,
@@ -237,7 +203,6 @@ export class Safe<A, E, R> {
 	static pipe<
 		A,
 		E,
-		R,
 		T1 extends AnySafe,
 		T2 extends AnySafe,
 		T3 extends AnySafe,
@@ -245,8 +210,8 @@ export class Safe<A, E, R> {
 		T5 extends AnySafe,
 		T6 extends AnySafe,
 	>(
-		safe: Safe<A, E, R>,
-		op1: (safe: Safe<A, E, R>) => T1,
+		safe: Safe<A, E>,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 		op3: (safe: T2) => T3,
 		op4: (safe: T3) => T4,
@@ -256,7 +221,6 @@ export class Safe<A, E, R> {
 	static pipe<
 		A,
 		E,
-		R,
 		T1 extends AnySafe,
 		T2 extends AnySafe,
 		T3 extends AnySafe,
@@ -265,8 +229,8 @@ export class Safe<A, E, R> {
 		T6 extends AnySafe,
 		T7 extends AnySafe,
 	>(
-		safe: Safe<A, E, R>,
-		op1: (safe: Safe<A, E, R>) => T1,
+		safe: Safe<A, E>,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 		op3: (safe: T2) => T3,
 		op4: (safe: T3) => T4,
@@ -277,7 +241,6 @@ export class Safe<A, E, R> {
 	static pipe<
 		A,
 		E,
-		R,
 		T1 extends AnySafe,
 		T2 extends AnySafe,
 		T3 extends AnySafe,
@@ -287,8 +250,8 @@ export class Safe<A, E, R> {
 		T7 extends AnySafe,
 		T8 extends AnySafe,
 	>(
-		safe: Safe<A, E, R>,
-		op1: (safe: Safe<A, E, R>) => T1,
+		safe: Safe<A, E>,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 		op3: (safe: T2) => T3,
 		op4: (safe: T3) => T4,
@@ -297,9 +260,9 @@ export class Safe<A, E, R> {
 		op7: (safe: T6) => T7,
 		op8: (safe: T7) => T8,
 	): T8;
-	static pipe<A, E, R, T1 extends AnySafe>(
-		safe: Safe<A, E, R>,
-		ops: readonly [(safe: Safe<A, E, R>) => T1],
+	static pipe<A, E, T1 extends AnySafe>(
+		safe: Safe<A, E>,
+		ops: readonly [(safe: Safe<A, E>) => T1],
 	): T1;
 	static pipe(
 		safe: AnySafe,
@@ -313,19 +276,19 @@ export class Safe<A, E, R> {
 	 * The variadic twin of `Safe.pipe`: `fetch.pipe(timeout(2000), retry(p))` is
 	 * `Safe.pipe(fetch, timeout(2000), retry(p))` — same fold, common case.
 	 */
-	pipe(): Safe<A, E, R>;
-	pipe<T1 extends AnySafe>(op1: (safe: Safe<A, E, R>) => T1): T1;
+	pipe(): Safe<A, E>;
+	pipe<T1 extends AnySafe>(op1: (safe: Safe<A, E>) => T1): T1;
 	pipe<T1 extends AnySafe, T2 extends AnySafe>(
-		op1: (safe: Safe<A, E, R>) => T1,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 	): T2;
 	pipe<T1 extends AnySafe, T2 extends AnySafe, T3 extends AnySafe>(
-		op1: (safe: Safe<A, E, R>) => T1,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 		op3: (safe: T2) => T3,
 	): T3;
 	pipe<T1 extends AnySafe, T2 extends AnySafe, T3 extends AnySafe, T4 extends AnySafe>(
-		op1: (safe: Safe<A, E, R>) => T1,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 		op3: (safe: T2) => T3,
 		op4: (safe: T3) => T4,
@@ -337,7 +300,7 @@ export class Safe<A, E, R> {
 		T4 extends AnySafe,
 		T5 extends AnySafe,
 	>(
-		op1: (safe: Safe<A, E, R>) => T1,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 		op3: (safe: T2) => T3,
 		op4: (safe: T3) => T4,
@@ -351,7 +314,7 @@ export class Safe<A, E, R> {
 		T5 extends AnySafe,
 		T6 extends AnySafe,
 	>(
-		op1: (safe: Safe<A, E, R>) => T1,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 		op3: (safe: T2) => T3,
 		op4: (safe: T3) => T4,
@@ -367,7 +330,7 @@ export class Safe<A, E, R> {
 		T6 extends AnySafe,
 		T7 extends AnySafe,
 	>(
-		op1: (safe: Safe<A, E, R>) => T1,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 		op3: (safe: T2) => T3,
 		op4: (safe: T3) => T4,
@@ -385,7 +348,7 @@ export class Safe<A, E, R> {
 		T7 extends AnySafe,
 		T8 extends AnySafe,
 	>(
-		op1: (safe: Safe<A, E, R>) => T1,
+		op1: (safe: Safe<A, E>) => T1,
 		op2: (safe: T1) => T2,
 		op3: (safe: T2) => T3,
 		op4: (safe: T3) => T4,
@@ -404,9 +367,7 @@ export class Safe<A, E, R> {
 	 * Run Safes concurrently, keeping order. The first fail or die aborts the
 	 * rest and becomes the result.
 	 */
-	static all<const T extends readonly Safe<any, any, any>[]>(
-		safes: T,
-	): Safe<AllA<T>, AllE<T>, AllR<T>> {
+	static all<const T extends readonly Safe<any, any>[]>(safes: T): Safe<AllA<T>, AllE<T>> {
 		return all(safes);
 	}
 
@@ -415,31 +376,31 @@ export class Safe<A, E, R> {
 	 * per-input result with failures visible instead of the first non-success.
 	 * It never fails itself: its `E` is `never`.
 	 */
-	static allSettled<const T extends readonly Safe<any, any, any>[]>(
+	static allSettled<const T extends readonly Safe<any, any>[]>(
 		safes: T,
-	): Safe<AllSettledA<T>, never, AllR<T>> {
+	): Safe<AllSettledA<T>, never> {
 		return allSettled(safes);
 	}
 
 	/** Keep the first Safe to settle; the losers are aborted. */
-	static race<const T extends readonly Safe<any, any, any>[]>(
+	static race<const T extends readonly Safe<any, any>[]>(
 		safes: T,
 		options?: RaceOptions,
-	): Safe<AllA<T>[number], AllE<T>, AllR<T>> {
+	): Safe<AllA<T>[number], AllE<T>> {
 		return race(safes, options);
 	}
 
 	/** Wait `ms`; an abort during the wait is an interrupt. */
-	static delay(ms: number): Safe<void, never, never> {
+	static delay(ms: number): Safe<void, never> {
 		return delay(ms);
 	}
 
 	/** Run one Safe per item, in order, with a sliding `concurrency` window. */
-	static forEach<A, B, E, R>(
+	static forEach<A, B, E>(
 		items: readonly A[],
-		f: (item: A, index: number) => Safe<B, E, R>,
+		f: (item: A, index: number) => Safe<B, E>,
 		options?: ForEachOptions,
-	): Safe<readonly B[], E, R> {
+	): Safe<readonly B[], E> {
 		return forEach(items, f, options);
 	}
 }
@@ -453,12 +414,12 @@ export class Safe<A, E, R> {
  * cannot produce compiles but never matches — pipe-position inference cannot
  * see the target's E, the data-last cost Effect's `catchTag` shares.
  */
-export function catchTag<const K extends string, B, E2 = never, R2 = never>(
+export function catchTag<const K extends string, B, E2 = never>(
 	code: K,
-	f: (payload: any) => Safe<B, E2, R2>,
+	f: (payload: any) => Safe<B, E2>,
 ) {
-	return <A, E, R>(safe: Safe<A, E, R>): Safe<A | B, Exclude<E, Arm<E, K>> | E2, R | R2> =>
-		new Safe<A | B, Exclude<E, Arm<E, K>> | E2, R | R2>((ctx) => {
+	return <A, E>(safe: Safe<A, E>): Safe<A | B, Exclude<E, Arm<E, K>> | E2> =>
+		new Safe<A | B, Exclude<E, Arm<E, K>> | E2>((ctx) => {
 			const recover = (exit: Outcome<A, E>) => {
 				if (exit._tag === "fail" && hasTag(exit.error, code)) {
 					return exec(f(payloadOf(exit.error, code)), ctx);
@@ -484,26 +445,26 @@ export function catchTag<const K extends string, B, E2 = never, R2 = never>(
  * borrowable: neverthrow surfaces an Err by leaving the body suspended, so a
  * `finally` never runs; here the driver closes the body and cleanup happens.
  */
-class PureSafe<A> extends Safe<A, never, never> {
+class PureSafe<A> extends Safe<A, never> {
 	constructor(readonly value: A) {
 		super(() => Outcome.succeed(value));
 	}
 
-	[Symbol.iterator](): Iterator<Safe<A, never, never>, A, any> {
+	[Symbol.iterator](): Iterator<Safe<A, never>, A, any> {
 		return new PureIterator(this.value);
 	}
 
-	[Symbol.asyncIterator](): AsyncIterator<Safe<A, never, never>, A, any> {
+	[Symbol.asyncIterator](): AsyncIterator<Safe<A, never>, A, any> {
 		return new PureAsyncIterator(this.value);
 	}
 }
 
 /** The async twin of `SafeIterator`: an async body's `yield*` lands here. */
-class SafeAsyncIterator<A, E, R> implements AsyncIterator<Safe<A, E, R>, A, any> {
+class SafeAsyncIterator<A, E> implements AsyncIterator<Safe<A, E>, A, any> {
 	#yielded = false;
-	constructor(private readonly safe: Safe<A, E, R>) {}
+	constructor(private readonly safe: Safe<A, E>) {}
 
-	async next(input?: unknown): Promise<IteratorResult<Safe<A, E, R>, A>> {
+	async next(input?: unknown): Promise<IteratorResult<Safe<A, E>, A>> {
 		if (!this.#yielded) {
 			this.#yielded = true;
 			return { value: this.safe, done: false };
@@ -511,17 +472,17 @@ class SafeAsyncIterator<A, E, R> implements AsyncIterator<Safe<A, E, R>, A, any>
 		return { value: input as A, done: true };
 	}
 
-	async return(): Promise<IteratorResult<Safe<A, E, R>, A>> {
+	async return(): Promise<IteratorResult<Safe<A, E>, A>> {
 		return { value: undefined as A, done: true };
 	}
 }
 
 /** One yield: the Safe goes out, the driver's value comes back. */
-class SafeIterator<A, E, R> implements Iterator<Safe<A, E, R>, A, any> {
+class SafeIterator<A, E> implements Iterator<Safe<A, E>, A, any> {
 	#yielded = false;
-	constructor(private readonly safe: Safe<A, E, R>) {}
+	constructor(private readonly safe: Safe<A, E>) {}
 
-	next(input?: unknown): IteratorResult<Safe<A, E, R>, A> {
+	next(input?: unknown): IteratorResult<Safe<A, E>, A> {
 		if (!this.#yielded) {
 			this.#yielded = true;
 			return { value: this.safe, done: false };
@@ -529,33 +490,33 @@ class SafeIterator<A, E, R> implements Iterator<Safe<A, E, R>, A, any> {
 		return { value: input as A, done: true };
 	}
 
-	return(): IteratorResult<Safe<A, E, R>, A> {
+	return(): IteratorResult<Safe<A, E>, A> {
 		return { value: undefined as A, done: true };
 	}
 }
 
 /** The async twin of `PureIterator`: still zero-yield. */
-class PureAsyncIterator<A> implements AsyncIterator<Safe<A, never, never>, A, any> {
+class PureAsyncIterator<A> implements AsyncIterator<Safe<A, never>, A, any> {
 	constructor(private readonly value: A) {}
 
-	async next(): Promise<IteratorResult<Safe<A, never, never>, A>> {
+	async next(): Promise<IteratorResult<Safe<A, never>, A>> {
 		return { value: this.value, done: true };
 	}
 
-	async return(): Promise<IteratorResult<Safe<A, never, never>, A>> {
+	async return(): Promise<IteratorResult<Safe<A, never>, A>> {
 		return { value: this.value, done: true };
 	}
 }
 
 /** Completes the delegation on the first `next()`: no yield, no result churn. */
-class PureIterator<A> implements Iterator<Safe<A, never, never>, A, any> {
+class PureIterator<A> implements Iterator<Safe<A, never>, A, any> {
 	constructor(private readonly value: A) {}
 
-	next(): IteratorResult<Safe<A, never, never>, A> {
+	next(): IteratorResult<Safe<A, never>, A> {
 		return { value: this.value, done: true };
 	}
 
-	return(): IteratorResult<Safe<A, never, never>, A> {
+	return(): IteratorResult<Safe<A, never>, A> {
 		return { value: this.value, done: true };
 	}
 }
@@ -579,10 +540,7 @@ export const payloadOf = (e: unknown, code: string): unknown =>
  * places a throw is classified: anything that escapes a body or a service
  * `init` is a defect. An already-aborted signal stops work before it starts.
  */
-export const exec = <A, E>(
-	safe: Safe<A, E, unknown>,
-	ctx: Ctx,
-): Outcome<A, E> | Promise<Outcome<A, E>> => {
+export const exec = <A, E>(safe: Safe<A, E>, ctx: Ctx): Outcome<A, E> | Promise<Outcome<A, E>> => {
 	if (ctx.signal.aborted) return Outcome.interrupt();
 	let out: Outcome<A, E> | Promise<Outcome<A, E>>;
 	try {
@@ -628,11 +586,11 @@ export interface RunOptions {
 }
 
 /**
- * Run a Safe whose requirements are all provided (R = never). Never rejects:
+ * Run a Safe. Never rejects:
  * every outcome, including defects, is an Outcome.
  */
 export const run = async <A, E>(
-	safe: Safe<A, E, never>,
+	safe: Safe<A, E>,
 	options: RunOptions = {},
 ): Promise<Outcome<A, E>> => {
 	const root = new Scope();
@@ -644,8 +602,6 @@ export const run = async <A, E>(
 		restoreSignal: signal,
 		scope: root,
 		clock: options.clock ?? Clocks.real,
-		lookup: rootLookup,
-		path: [],
 	});
 	return isThenable(exit) ? exit.then((o) => root.close(o)) : Promise.resolve(root.close(exit));
 };
@@ -653,12 +609,9 @@ export const run = async <A, E>(
 // --- Sequencing ---
 
 /** Anything `yield*`-able inside `Safe.try`. */
-export type Yieldable = Safe<any, any, any> | ServiceClass;
+export type Yieldable = Safe<any, any>;
 
-export type YieldError<Y> = Y extends Safe<any, infer E, any> ? E : never;
-
-export type YieldRequirement<Y> =
-	Y extends Safe<any, any, infer R> ? R : Y extends ServiceClass ? Y : never;
+export type YieldError<Y> = Y extends Safe<any, infer E> ? E : never;
 
 export type AnyGenerator =
 	| Generator<unknown, unknown, unknown>
@@ -667,7 +620,7 @@ export type AnyGenerator =
 /**
  * One driver for both kinds. The sync loop handles a generator whose steps all
  * resolve to values — the common case — without allocating a promise per step;
- * the moment a step is a promise (an async generator, or a service lookup) the
+ * the moment a step is a promise (an async generator) the
  * async continuation takes over and the rest of the body runs there.
  */
 export const drive = (
@@ -790,9 +743,6 @@ const closedOutcome = (
 ): Outcome<unknown, unknown> =>
 	defect !== undefined && outcome._tag === "success" ? Outcome.die(defect.value) : outcome;
 
-const isServiceClass = (y: unknown): y is ServiceClass =>
-	typeof y === "function" && typeof (y as { init?: unknown }).init === "function";
-
 /**
  * A yielded value resolves to the Outcome that ends the body when it is not a
  * success; a success continues with `out.value`. Returning the Outcome itself
@@ -803,6 +753,5 @@ const resolveYield = (
 	ctx: Ctx,
 ): Outcome<unknown, unknown> | Promise<Outcome<unknown, unknown>> => {
 	if (y instanceof Safe) return exec(y, ctx);
-	if (isServiceClass(y)) return ctx.lookup(y, ctx.path);
 	return Outcome.die(new TypeError("safe-ts: Safe.try yielded a value that is not yieldable"));
 };

@@ -52,7 +52,7 @@ const program = Safe.try(function* () {
 console.log(await Runtime.run(program)); // { _tag: "success", value: "LOADED" }
 ```
 
-`async function*` 函数体也能用，但运行时成本大约翻倍（第 8 章）：每个 `next()` 都变成
+`async function*` 函数体也能用，但运行时成本大约翻倍（第 7 章）：每个 `next()` 都变成
 promise。优先用同步函数体。
 
 ## 热路径用 `yield` 而不是 `yield*`
@@ -70,4 +70,4 @@ const program = Safe.try(function* () {
 ```
 
 **永远是惰性的。** 函数体在 `run` 之前不执行任何东西，而且每次 `run` 都重新执行 ——
-这正是重试（第 7 章）能成立的原因。
+这正是重试（第 6 章）能成立的原因。

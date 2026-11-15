@@ -24,7 +24,22 @@ interface Cancelled {
 
 const NOOP = (): void => {};
 
-export class Scheduler {
+export interface Scheduler {
+	/** `signal` is the run's own signal: pass it to APIs that take one. */
+	readonly signal: AbortSignal;
+	/**
+	 * Run `fn` when the run is cancelled — immediately if it already is. The
+	 * returned function unregisters it; everything is cleared when the call
+	 * settles.
+	 */
+	onCancel(fn: () => void): () => void;
+	/** The run's clock: same `now` every timer in the run reads. */
+	now(): number;
+	/** Resolve after `ms`, or reject with the signal's reason when cancelled. */
+	sleep(ms: number): Promise<void>;
+}
+
+export class CallScheduler implements Scheduler {
 	/** Created on first registration: a call that registers nothing allocates nothing. */
 	#callbacks: (() => void)[] | undefined;
 	#onAbort: ((cancelled: Cancelled) => void) | undefined;
@@ -35,7 +50,6 @@ export class Scheduler {
 	readonly #clock: Clock;
 	readonly #deferInterrupt: boolean;
 
-	/** `signal` is the run's own signal: pass it to APIs that take one. */
 	constructor(
 		readonly signal: AbortSignal,
 		clock: Clock = Clocks.real,
@@ -43,10 +57,6 @@ export class Scheduler {
 	) {
 		this.#clock = clock;
 		this.#deferInterrupt = deferInterrupt;
-	}
-
-	get aborted(): boolean {
-		return this.signal.aborted;
 	}
 
 	/** Attach the listener on first use: a call that never registers never pays. */
@@ -57,11 +67,6 @@ export class Scheduler {
 		this.signal.addEventListener("abort", this.#bound, { once: true });
 	}
 
-	/**
-	 * Run `fn` when the run is cancelled — immediately if it already is. The
-	 * returned function unregisters it; everything is cleared when the call
-	 * settles.
-	 */
 	onCancel(fn: () => void): () => void {
 		if (this.signal.aborted) {
 			fn();
@@ -76,12 +81,10 @@ export class Scheduler {
 		};
 	}
 
-	/** The run's clock: same `now` every timer in the run reads. */
 	now(): number {
 		return this.#clock.now();
 	}
 
-	/** Resolve after `ms`, or reject with the signal's reason when cancelled. */
 	sleep(ms: number): Promise<void> {
 		// Off the real clock a manual one virtualises the wait entirely.
 		if (this.#clock !== Clocks.real) return this.#clock.sleep(ms, this.signal);

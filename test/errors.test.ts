@@ -49,7 +49,7 @@ describe("renderError", () => {
 });
 
 describe("catchTag", () => {
-	const read = (path: string): Safe<string, FsError, never> =>
+	const read = (path: string): Safe<string, FsError> =>
 		path === "/ok"
 			? Safe.ok("data")
 			: path === "/missing"

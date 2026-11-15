@@ -53,7 +53,7 @@ console.log(await Runtime.run(program)); // { _tag: "success", value: "LOADED" }
 ```
 
 An `async function*` body works too, but it costs about twice as much at run time
-(chapter 8): every `next()` becomes a promise. Prefer the sync body.
+(chapter 7): every `next()` becomes a promise. Prefer the sync body.
 
 ## `yield` instead of `yield*` in hot paths
 
@@ -71,4 +71,4 @@ const program = Safe.try(function* () {
 ```
 
 **Lazy, always.** Nothing in the body runs until `run`, and each `run` runs the body
-again — which is what makes retry (chapter 7) work.
+again — which is what makes retry (chapter 6) work.

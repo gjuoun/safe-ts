@@ -1,4 +1,4 @@
-# 7 · 并发、超时、重试、取消
+# 6 · 并发、超时、重试、取消
 
 这里的每个包装器都是 `Safe → Safe` 工厂 —— `exec` 加一个 signal、一个定时器或
 一条车道，没有 fiber —— 它们在 `pipe` 里与 Safe 相遇：
@@ -6,7 +6,7 @@
 ```ts
 import { Pipe, Safe } from "@gjuoun/safe-ts";
 
-const fetch: Safe<number, string, never> = Safe.ok(1);
+const fetch: Safe<number, string> = Safe.ok(1);
 const policy = { attempts: 3, delayMs: 10 };
 
 // timeout 包住整个重试循环
@@ -31,8 +31,12 @@ const exit = await Runtime.run(Safe.all([fetchDoc("a"), fetchDoc("b")]));
 console.log(exit); // { _tag: "success", value: ["doc:a", "doc:b"] }
 ```
 
-第一个 `fail` 或 `die` 会中断兄弟任务，并成为结果。`Safe.allSettled` 是它
-永不失败的兄弟：它按输入顺序返回每一个 `Outcome`，由调用方逐个读 `_tag`。
+第一个 `fail` 或 `die` 会中断兄弟任务，并成为**整个批次**的结果。其他进行中的
+调用是被中断，而不是也变成相同的类型化失败；已经完成的调用不能撤销。客户端必须
+响应 `s.signal`（或注册 `s.onCancel`），底层工作才会停下。五个 HTTP 请求的完整
+讲解见 [Scheduler 与取消](./08-scheduler.md)及
+[可运行示例](../../examples/06-parallel-requests.ts)。
+`Safe.allSettled` 则按输入顺序返回每一个 `Outcome`，失败也不会取消其他任务。
 
 ## `Safe.race` —— 谁先结束用谁
 
@@ -140,8 +144,18 @@ const exit = await Runtime.run(program, { signal: AbortSignal.timeout(10) });
 console.log(exit._tag); // "interrupt"
 ```
 
-在回调内部，协作靠 `Scheduler`：`s.sleep(ms)` 等待 run 的 signal，`s.onCancel(fn)`
-登记该停止什么，`s.signal` 传给需要 signal 的 API，`s.now()` 读 run 的时钟。
+### Scheduler 的控制
+
+`Runtime.run(safe, { signal })` 接收调用方传入的 signal；每次 `Safe.call` 的回调
+都得到这次运行的 `Scheduler` 视图。支持 `AbortSignal` 的客户端直接使用
+`s.signal`，否则注册 `s.onCancel(() => client.cancel())`。`s.sleep` 和 `s.now`
+使用这次运行的时钟。你不需要构造 Scheduler：公开的 `Scheduler` 只是类型接口，
+结算细节在库内部。
+
+取消通常产生 `interrupt`，而不是类型化的 `fail`。取消是协作式的：底层请求如果
+忽略取消，即使 Safe 已经结算，它仍可能继续运行。关于 Cancel 按钮、DB 客户端、
+`Safe.all` 失败传导和手动时钟测试，请阅读独立的
+[Scheduler 与取消指南](./08-scheduler.md)。
 
 `uninterruptible` 和 `interruptible` 是区域组合子 —— 组合子常量，不用加
 括号 —— 分别用于屏蔽 deadline 和把区域重新暴露给它：
@@ -149,8 +163,8 @@ console.log(exit._tag); // "interrupt"
 ```ts
 import { Pipe, Safe } from "@gjuoun/safe-ts";
 
-declare const critical: Safe<number, never, never>;
-declare const acquire: Safe<{ close(): void }, never, never>;
+declare const critical: Safe<number, never>;
+declare const acquire: Safe<{ close(): void }, never>;
 declare const close: (r: { close(): void }) => void;
 
 // 该区域不可被切断；deadline 在下一步被观察到。

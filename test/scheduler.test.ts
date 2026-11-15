@@ -2,20 +2,20 @@ import { describe, expect, test } from "bun:test";
 import { getEventListeners } from "node:events";
 import { Outcome } from "../src/outcome.ts";
 import { run, Safe } from "../src/safe.ts";
-import { Scheduler } from "../src/scheduler.ts";
+import { CallScheduler } from "../src/scheduler.ts";
 
 const live = (signal: AbortSignal) => getEventListeners(signal, "abort").length;
 
 describe("Scheduler", () => {
 	test("sleep resolves after its delay", async () => {
 		const started = performance.now();
-		await new Scheduler(new AbortController().signal).sleep(5);
+		await new CallScheduler(new AbortController().signal).sleep(5);
 		expect(performance.now() - started).toBeGreaterThanOrEqual(4);
 	});
 
 	test("sleep rejects when the run is cancelled", async () => {
 		const ac = new AbortController();
-		const scheduler = new Scheduler(ac.signal);
+		const scheduler = new CallScheduler(ac.signal);
 		const pending = scheduler.sleep(500);
 		ac.abort();
 		let rejected = false;
@@ -31,7 +31,7 @@ describe("Scheduler", () => {
 		const ac = new AbortController();
 		ac.abort();
 		let ran = 0;
-		new Scheduler(ac.signal).onCancel(() => {
+		new CallScheduler(ac.signal).onCancel(() => {
 			ran++;
 		});
 		expect(ran).toBe(1);
@@ -40,7 +40,7 @@ describe("Scheduler", () => {
 	test("onCancel unregisters with the returned function", async () => {
 		const ac = new AbortController();
 		let ran = 0;
-		const dispose = new Scheduler(ac.signal).onCancel(() => {
+		const dispose = new CallScheduler(ac.signal).onCancel(() => {
 			ran++;
 		});
 		dispose();

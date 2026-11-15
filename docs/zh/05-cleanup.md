@@ -1,4 +1,4 @@
-# 6 · 一定会执行的清理
+# 5 · 一定会执行的清理
 
 `acquireRelease` 把资源和它的释放配对。释放会在**每一种**退出方式下执行：成功、
 失败、缺陷、中断。它是一个 `Safe → Safe` 工厂 —— 和其他包装器一样，在 `pipe` 里
@@ -51,6 +51,11 @@ console.log(await Runtime.run(timed)); // 先 always: success，再 success
 - 释放抛异常会把成功变成 `die`；失败则保留自己的错误。
 - 释放可以是异步的，也可以是 generator，并可以在其中 `yield*` 服务。
 - run 被中断时释放仍然执行 —— 这正是登记它的意义。
+
+`s.onCancel(fn)` 不同：它只在**取消进行中的操作**时运行，例如调用数据库客户端的
+`cancel()`；正常成功或失败时不会运行，而且回调是同步的。每一种退出方式都要做的
+清理请使用 `ensuring` 或 `acquireRelease`。详见
+[Scheduler 与取消](./08-scheduler.md)。
 
 ```ts
 import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";

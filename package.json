@@ -1,7 +1,7 @@
 {
 	"name": "@gjuoun/safe-ts",
 	"version": "0.1.0",
-	"description": "One effect system for TypeScript without a fiber runtime: a lazy Safe<A, E, R> with one Safe.call boundary, Safe.try sequencing, a Scheduler for cancellation, a flat Outcome, class services and finalizers.",
+	"description": "One effect system for TypeScript without a fiber runtime: a lazy Safe<A, E> with one Safe.call boundary, Safe.try sequencing, a Scheduler for cancellation, a flat Outcome and finalizers.",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -51,16 +51,14 @@
 		"prepare": "bun run build",
 		"prepublishOnly": "bun run check && bun run build",
 		"docs:check": "bun run scripts/doc-check.ts",
-		"bench": "bun run bench/run.ts",
-		"bench:tax": "bun run bench/tax.ts",
+		"bench": "bun run --cwd benchmark bench",
+		"bench:tax": "bun run --cwd benchmark bench:tax",
 		"check": "bun run typecheck && bun run lint && bun run test && bun run docs:check"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.10",
 		"@types/bun": "latest",
 		"dts-bundle-generator": "10",
-		"effect": "^4.1.4",
-		"neverthrow": "^8.2.0",
 		"typescript": "5.9.3"
 	}
 }

@@ -1,11 +1,13 @@
 # 1 · The value: a Safe
 
-A `Safe<A, E, R>` is a **description of work**, not work. Nothing runs until you call
+A `Safe<A, E>` is a **description of work**, not work. Nothing runs until you call
 `Runtime.run`, and each run executes the description again.
 
 - `A` — what it succeeds with
 - `E` — the errors you declared for it
-- `R` — the services it still needs (chapter 5)
+
+Dependencies are ordinary constructor arguments: a `Safe` describes work, and the
+class that does the work already holds what it needs.
 
 ```ts
 import { Runtime, Safe } from "@gjuoun/safe-ts";

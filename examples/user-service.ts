@@ -1,10 +1,9 @@
 // examples/user-service.ts — everything end to end.
 //
-// Config → Db (disposable) → UserRepo, as plain classes whose `static init`
-// gets what the constructor needs, shared through one runtime. Three
-// requests: a found user, a not_found recovered with catchTag, and one
-// cancelled by its signal through `Scheduler.onCancel`. Disposing the runtime
-// closes the database.
+// Config → Db → UserRepo, as plain classes wired by constructor at the top of
+// the file — no container, no layer. Three requests: a found user, a
+// not_found recovered with catchTag, and one cancelled by its signal through
+// `Scheduler.onCancel`. Closing the database is the last line.
 //
 //   bun run examples/user-service.ts
 import {
@@ -15,7 +14,6 @@ import {
 	Runtime,
 	Safe,
 	type Scheduler,
-	Services,
 } from "../src/index.ts";
 
 // --- Errors ---
@@ -25,7 +23,7 @@ const userError = Errors.define({
 });
 type UserError = ErrorsOf<typeof userError>;
 
-// --- Services ---
+// --- Wiring ---
 
 interface User {
 	readonly id: string;
@@ -34,16 +32,10 @@ interface User {
 
 class Config {
 	constructor(readonly users: Readonly<Record<string, string>>) {}
-	static *init() {
-		return new Config({ u1: "ada" });
-	}
 }
 
 class Db {
 	constructor(private readonly config: Config) {}
-	static *init() {
-		return new Db(yield* Services.get(Config));
-	}
 	get(id: string, scheduler: Scheduler): Promise<string | undefined> {
 		return new Promise((resolve) => {
 			// Slow ids simulate a query that outlives its request.
@@ -51,17 +43,14 @@ class Db {
 			scheduler.onCancel(() => clearTimeout(timer));
 		});
 	}
-	async *dispose() {
+	close() {
 		console.log("db: closed");
 	}
 }
 
 class UserRepo {
 	constructor(private readonly db: Db) {}
-	static *init() {
-		return new UserRepo(yield* Services.get(Db));
-	}
-	find(id: string): Safe<User, UserError, never> {
+	find(id: string): Safe<User, UserError> {
 		const db = this.db;
 		return Safe.try(function* () {
 			const name = yield* Safe.call((scheduler) => db.get(id, scheduler));
@@ -73,9 +62,12 @@ class UserRepo {
 
 // --- Program ---
 
+const config = new Config({ u1: "ada" });
+const db = new Db(config);
+const repo = new UserRepo(db);
+
 const greet = (id: string) =>
 	Safe.try(function* () {
-		const repo = yield* Services.get(UserRepo);
 		const user = yield* repo.find(id);
 		return `found: ${user.name}`;
 	}).pipe(Pipe.catchTag("not_found", (e: { id: string }) => Safe.ok(`handled: not_found ${e.id}`)));
@@ -83,8 +75,7 @@ const greet = (id: string) =>
 const show = (exit: Outcome<string, never>): string =>
 	exit._tag === "success" ? exit.value : exit._tag;
 
-const runtime = Runtime.make([UserRepo, Db, Config]);
-console.log(show(await runtime.run(greet("u1"))));
-console.log(show(await runtime.run(greet("u2"))));
-console.log(show(await runtime.run(greet("slow"), { signal: AbortSignal.timeout(20) })));
-await runtime.dispose();
+console.log(show(await Runtime.run(greet("u1"))));
+console.log(show(await Runtime.run(greet("u2"))));
+console.log(show(await Runtime.run(greet("slow"), { signal: AbortSignal.timeout(20) })));
+db.close();

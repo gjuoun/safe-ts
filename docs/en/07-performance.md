@@ -1,6 +1,6 @@
-# 8 · Performance, and where this fits
+# 7 · Performance, and where this fits
 
-Measured with the harness in `bench/` (`bun run bench`): ten scenarios, both lanes
+Measured with the harness in `benchmark/` (`bun run bench`): ten scenarios, both lanes
 build the program per call, five trials, a win counts only when the min–max ranges do
 not overlap.
 

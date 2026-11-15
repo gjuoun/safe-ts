@@ -19,6 +19,9 @@ const N = Number(process.env.N ?? 20000);
 const ROUNDS = 3;
 
 const SCENARIOS = st.names;
+// These sleep on a real timer, so the wall clock measures the sleep, not the library.
+// They still pass the parity check above; they are not timed.
+const UNTIMED = new Set(["timeoutBound", "delayWait"]);
 
 // 1) parity — every lane must print the same string before anything is timed
 let mismatches = 0;
@@ -71,6 +74,10 @@ console.log("-".repeat(104));
 let wins = 0;
 let losses = 0;
 for (const name of SCENARIOS) {
+	if (UNTIMED.has(name)) {
+		console.log(`${name.padEnd(13)}skipped: waits on a real timer`);
+		continue;
+	}
 	const safe: number[] = [];
 	const effect: number[] = [];
 	for (let t = 0; t < TRIALS; t++) {
@@ -79,7 +86,8 @@ for (const name of SCENARIOS) {
 	}
 	const sm = median(safe);
 	const em = median(effect);
-	const overlap = Math.max(...safe) >= Math.min(...effect);
+	const overlap =
+		Math.max(...safe) >= Math.min(...effect) && Math.max(...effect) >= Math.min(...safe);
 	const ratio = sm / em;
 	const verdict = overlap ? "noise" : ratio < 1 ? "safe-ts wins" : "effect wins";
 	if (!overlap && ratio < 1) wins++;

@@ -23,10 +23,10 @@ const parseJson = (text: string) =>
 // A sync body can still yield async Safes — `yield*` is the sequencing, not `await`.
 const readConfig = (text: string) =>
 	Safe.try(function* () {
-		const config = yield* parseJson(text); // Safe<Config, "bad_json", never>
+		const config = yield* parseJson(text); // Safe<Config, "bad_json">
 		if (!config.name) return yield* Safe.err("missing_name"); // an early failure
 		return config;
-	}); // Safe<Config, "bad_json" | "missing_name", never>
+	}); // Safe<Config, "bad_json" | "missing_name">
 
 const loadConfig = (path: string) =>
 	Safe.try(function* () {
@@ -36,7 +36,7 @@ const loadConfig = (path: string) =>
 			(): "unreadable" => "unreadable",
 		);
 		return yield* readConfig(text);
-	}); // Safe<Config, "unreadable" | "bad_json" | "missing_name", never>
+	}); // Safe<Config, "unreadable" | "bad_json" | "missing_name">
 
 const show = <A, E>(exit: Outcome<A, E>): string => {
 	switch (exit._tag) {

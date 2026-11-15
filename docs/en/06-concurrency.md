@@ -1,4 +1,4 @@
-# 7 · Concurrency, timeouts, retries, cancellation
+# 6 · Concurrency, timeouts, retries, cancellation
 
 Every wrapper here is a `Safe → Safe` factory — `exec` plus a signal, a timer
 or a lane, never a fiber — and it meets a Safe inside `pipe`:
@@ -6,7 +6,7 @@ or a lane, never a fiber — and it meets a Safe inside `pipe`:
 ```ts
 import { Pipe, Safe } from "@gjuoun/safe-ts";
 
-const fetch: Safe<number, string, never> = Safe.ok(1);
+const fetch: Safe<number, string> = Safe.ok(1);
 const policy = { attempts: 3, delayMs: 10 };
 
 // timeout bounds the whole retry loop
@@ -32,9 +32,14 @@ const exit = await Runtime.run(Safe.all([fetchDoc("a"), fetchDoc("b")]));
 console.log(exit); // { _tag: "success", value: ["doc:a", "doc:b"] }
 ```
 
-The first `fail` or `die` aborts the siblings and becomes the result.
-`Safe.allSettled` is its sibling that never fails: it returns every `Outcome`
-in input order, so a caller reads `_tag` per element instead.
+The first `fail` or `die` aborts the siblings and becomes the **batch** result.
+The other in-flight calls are interrupted, not turned into the same typed
+failure; already-completed calls cannot be undone. The clients must honor
+`s.signal` (or use `s.onCancel`) to stop their underlying work. For a five-HTTP-
+request walkthrough see [Scheduler and cancellation](./08-scheduler.md) and
+the [runnable example](../../examples/06-parallel-requests.ts).
+`Safe.allSettled` instead returns every `Outcome` in input order without
+cancelling siblings on failure.
 
 ## `Safe.race` — first to settle
 
@@ -146,9 +151,19 @@ const exit = await Runtime.run(program, { signal: AbortSignal.timeout(10) });
 console.log(exit._tag); // "interrupt"
 ```
 
-Inside a callback the `Scheduler` is how you cooperate: `s.sleep(ms)` waits on
-the run's signal, `s.onCancel(fn)` registers what should stop, `s.signal` goes
-to APIs that take one, `s.now()` reads the run's clock.
+### Scheduler control
+
+`Runtime.run(safe, { signal })` accepts a caller's signal. Each `Safe.call`
+receives a `Scheduler` view of its run's signal. Pass `s.signal` to a client
+that understands `AbortSignal`; otherwise register `s.onCancel(() => client.cancel())`.
+`s.sleep` and `s.now` use the run's clock. You do not construct a Scheduler:
+it is a type-only public interface; settlement is internal.
+
+An abort normally becomes `interrupt`, not a typed `fail`. It is cooperative:
+an underlying request that ignores cancellation can continue even after its
+Safe has settled. Read the dedicated [Scheduler and cancellation guide](./08-scheduler.md)
+for a Cancel button, a DB client, `Safe.all` failure propagation, and manual
+clock tests.
 
 `uninterruptible` and `interruptible` are the region combinators —
 combinator constants, no parens — for masking a deadline and opting a region
@@ -157,8 +172,8 @@ back in:
 ```ts
 import { Pipe, Safe } from "@gjuoun/safe-ts";
 
-declare const critical: Safe<number, never, never>;
-declare const acquire: Safe<{ close(): void }, never, never>;
+declare const critical: Safe<number, never>;
+declare const acquire: Safe<{ close(): void }, never>;
 declare const close: (r: { close(): void }) => void;
 
 // The region cannot be cut; the deadline is observed at the next step.

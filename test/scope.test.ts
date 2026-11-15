@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Pipe } from "../src/index.ts";
 import { Outcome } from "../src/outcome.ts";
-import { Runtime } from "../src/runtime.ts";
 import { run, Safe } from "../src/safe.ts";
-import { get, provide } from "../src/services.ts";
 
 const resource = (name: string, log: string[]) =>
 	Safe.call(() => name).pipe(
@@ -120,111 +118,5 @@ describe("scoped", () => {
 		);
 		expect(await run(s, { signal: ac.signal })).toEqual(Outcome.interrupt());
 		expect(log).toEqual(["released conn"]);
-	});
-});
-
-describe("runtime", () => {
-	const makeDb = (counters: { builds: number; released: number }) =>
-		class Db {
-			open = true;
-			static *init() {
-				counters.builds++;
-				return new Db();
-			}
-			query() {
-				return this.open ? "rows" : "closed";
-			}
-			*dispose() {
-				this.open = false;
-				counters.released++;
-			}
-		};
-
-	test("runtime builds once across 3 runs", async () => {
-		const counters = { builds: 0, released: 0 };
-		const Db = makeDb(counters);
-		const rt = Runtime.make([Db]);
-		const q = Safe.try(function* () {
-			return (yield* get(Db)).query();
-		});
-		const exits = [await rt.run(q), await rt.run(q), await rt.run(q)];
-		expect(exits).toEqual([
-			Outcome.succeed("rows"),
-			Outcome.succeed("rows"),
-			Outcome.succeed("rows"),
-		]);
-		expect(counters.builds).toBe(1);
-		await rt.dispose();
-	});
-
-	test("dispose releases after use", async () => {
-		const counters = { builds: 0, released: 0 };
-		const Db = makeDb(counters);
-		const rt = Runtime.make([Db]);
-		const open = Safe.try(function* () {
-			return (yield* get(Db)).open;
-		});
-		expect(await rt.run(open)).toEqual(Outcome.succeed(true));
-		expect(counters.released).toBe(0);
-		await rt.dispose();
-		expect(counters.released).toBe(1);
-		await rt.dispose();
-		expect(counters.released).toBe(1);
-	});
-
-	test("run after dispose is a die", async () => {
-		const rt = Runtime.make([makeDb({ builds: 0, released: 0 })]);
-		await rt.dispose();
-		const exit = await rt.run(Safe.ok(1));
-		expect(exit._tag).toBe("die");
-	});
-
-	test("a per-run abort does not tear down runtime services", async () => {
-		const counters = { builds: 0, released: 0 };
-		const Db = makeDb(counters);
-		const rt = Runtime.make([Db]);
-		const slow = Safe.try(function* () {
-			yield* get(Db);
-			return yield* Safe.call(() => new Promise<never>(() => {}));
-		});
-		expect(await rt.run(slow, { signal: AbortSignal.timeout(5) })).toEqual(Outcome.interrupt());
-		const q = Safe.try(function* () {
-			return (yield* get(Db)).query();
-		});
-		expect(await rt.run(q)).toEqual(Outcome.succeed("rows"));
-		expect(counters).toEqual({ builds: 1, released: 0 });
-		await rt.dispose();
-	});
-
-	test("a failed build is retried on the next run", async () => {
-		let attempts = 0;
-		class Flaky {
-			static *init() {
-				attempts++;
-				if (attempts === 1) return yield* Safe.err("down" as const);
-				return new Flaky();
-			}
-		}
-		const rt = Runtime.make([Flaky]);
-		const use = Safe.try(function* () {
-			yield* get(Flaky);
-			return attempts;
-		});
-		expect(await rt.run(use)).toEqual(Outcome.fail("down"));
-		expect(await rt.run(use)).toEqual(Outcome.succeed(2));
-		await rt.dispose();
-	});
-
-	test("a class provided inside run is disposed when the run ends", async () => {
-		const counters = { builds: 0, released: 0 };
-		const Db = makeDb(counters);
-		const program = provide(
-			Safe.try(function* () {
-				return (yield* get(Db)).query();
-			}),
-			[Db],
-		);
-		expect(await run(program)).toEqual(Outcome.succeed("rows"));
-		expect(counters).toEqual({ builds: 1, released: 1 });
 	});
 });
