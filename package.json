@@ -1,6 +1,6 @@
 {
 	"name": "@gjuoun/safe-ts",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "One effect system for TypeScript without a fiber runtime: a lazy Safe<A, E> with one Safe.call boundary, Safe.try sequencing, a Scheduler for cancellation, a flat Outcome and finalizers.",
 	"type": "module",
 	"main": "./dist/index.js",
