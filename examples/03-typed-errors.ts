@@ -8,18 +8,10 @@
 // `fail` — defects never travel the typed channel.
 //
 //   bun run examples/03-typed-errors.ts
-import {
-	defineErrors,
-	type ErrorsOf,
-	Outcome,
-	renderError,
-	run,
-	Safe,
-	type TaggedError,
-} from "../src/index.ts";
+import { Errors, type ErrorsOf, Outcome, Safe, type TaggedError } from "../src/index.ts";
 
 // One factory per variant; the key is the only place the tag is written.
-const storageError = defineErrors({
+const storageError = Errors.define({
 	not_found: (id: string) => ({ message: `no such key: ${id}`, id }),
 	unavailable: (reason: unknown) => ({ message: "store is unreachable", cause: reason }),
 });
@@ -49,19 +41,19 @@ const withFallback = (key: string) =>
 
 const show = <E extends TaggedError>(exit: Outcome<unknown, E>): string => {
 	if (exit._tag === "success") return `ok: ${JSON.stringify(exit.value)}`;
-	if (Outcome.isFail(exit)) return renderError(exit.error);
+	if (Outcome.isFail(exit)) return Errors.render(exit.error);
 	if (Outcome.isDie(exit)) return `die: ${String(exit.defect)}`;
 	return "interrupt";
 };
 
-console.log(show(await run(withFallback("readme"))));
-console.log(show(await run(withFallback("missing"))));
-console.log(show(await run(fetchObject("readme"))));
+console.log(show(await Safe.run(withFallback("readme"))));
+console.log(show(await Safe.run(withFallback("missing"))));
+console.log(show(await Safe.run(fetchObject("readme"))));
 
 // A throw is a defect: `die`, never a typed `fail`.
 console.log(
 	show(
-		await run(
+		await Safe.run(
 			Safe.call(() => {
 				throw new Error("boom");
 			}),

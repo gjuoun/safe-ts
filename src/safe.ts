@@ -148,6 +148,14 @@ export class Safe<A, E, R> {
 		});
 	}
 
+	/**
+	 * Run a Safe whose requirements are all provided (`R = never`). Never
+	 * rejects: every outcome, including defects, is an Outcome.
+	 */
+	static run<A, E>(safe: Safe<A, E, never>, options?: RunOptions): Promise<Outcome<A, E>> {
+		return run(safe, options);
+	}
+
 	/** Run in a fresh scope; its finalizers run (LIFO) as soon as it exits. */
 	static scoped<A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R> {
 		return new Safe<A, E, R>(async (ctx) => {

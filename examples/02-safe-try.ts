@@ -7,7 +7,7 @@
 //
 //   bun run examples/02-safe-try.ts
 import { readFile, writeFile } from "node:fs/promises";
-import { type Outcome, run, Safe } from "../src/index.ts";
+import { type Outcome, Safe } from "../src/index.ts";
 
 interface Config {
 	name: string;
@@ -52,8 +52,8 @@ const show = <A, E>(exit: Outcome<A, E>): string => {
 };
 
 await writeFile("/tmp/safe-ts-config.json", JSON.stringify({ name: "demo" }));
-console.log(show(await run(loadConfig("/tmp/safe-ts-config.json"))));
-console.log(show(await run(loadConfig("/tmp/safe-ts-missing.json"))));
+console.log(show(await Safe.run(loadConfig("/tmp/safe-ts-config.json"))));
+console.log(show(await Safe.run(loadConfig("/tmp/safe-ts-missing.json"))));
 
 // Lazy: build once, and every `run` runs the body again.
 let runs = 0;
@@ -62,7 +62,7 @@ const counted = Safe.try(function* () {
 	yield* Safe.ok(undefined); // a yieldable step
 	return runs;
 });
-console.log(`${show(await run(counted))} then ${show(await run(counted))}`);
+console.log(`${show(await Safe.run(counted))} then ${show(await Safe.run(counted))}`);
 
 // A failed `yield*` closes the generator — `finally` still runs.
 const cleanup = Safe.try(function* () {
@@ -72,4 +72,4 @@ const cleanup = Safe.try(function* () {
 		console.log("finally: still ran");
 	}
 });
-console.log(show(await run(cleanup)));
+console.log(show(await Safe.run(cleanup)));

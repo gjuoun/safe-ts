@@ -8,7 +8,7 @@
 // first-out on every exit: success, fail, die and interrupt.
 //
 //   bun run examples/05-concurrency-and-cleanup.ts
-import { type Outcome, run, Safe } from "../src/index.ts";
+import { type Outcome, Safe } from "../src/index.ts";
 
 // The scheduler waits on the run's signal; a rejection caused by an abort is an
 // interrupt, not a typed fail.
@@ -38,13 +38,15 @@ const show = <A, E>(exit: Outcome<A, E>): string => {
 };
 
 // 1. Concurrent success: results keep input order.
-console.log(show(await run(Safe.all([fetchDoc("a", 5), fetchDoc("b", 10)]))));
+console.log(show(await Safe.run(Safe.all([fetchDoc("a", 5), fetchDoc("b", 10)]))));
 
 // 2. Fail-fast: the first failure aborts the in-flight siblings.
-console.log(show(await run(Safe.all([fetchDoc("c", 500), fetchDoc("d", 500), Safe.err("boom")]))));
+console.log(
+	show(await Safe.run(Safe.all([fetchDoc("c", 500), fetchDoc("d", 500), Safe.err("boom")]))),
+);
 
 // 3. `AbortSignal.timeout` bounds a run — no timeout operator needed.
-console.log(show(await run(fetchDoc("slow", 500), { signal: AbortSignal.timeout(20) })));
+console.log(show(await Safe.run(fetchDoc("slow", 500), { signal: AbortSignal.timeout(20) })));
 
 // 4. `scoped` + a release with no resource: cleanup runs LIFO, on fail as on success.
 const work = Safe.scoped(
@@ -54,7 +56,7 @@ const work = Safe.scoped(
 		return yield* Safe.err("crash");
 	}),
 );
-console.log(show(await run(work)));
+console.log(show(await Safe.run(work)));
 
 // 5. Interrupting mid-run still releases what was acquired.
 const slowWork = Safe.scoped(
@@ -63,4 +65,4 @@ const slowWork = Safe.scoped(
 		return yield* fetchDoc("slow", 500);
 	}),
 );
-console.log(show(await run(slowWork, { signal: AbortSignal.timeout(20) })));
+console.log(show(await Safe.run(slowWork, { signal: AbortSignal.timeout(20) })));

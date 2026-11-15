@@ -8,18 +8,17 @@
 //
 //   bun run examples/user-service.ts
 import {
-	defineErrors,
+	Errors,
 	type ErrorsOf,
-	get,
-	makeRuntime,
 	type Outcome,
 	Safe,
 	type Scheduler,
+	Services,
 } from "../src/index.ts";
 
 // --- Errors ---
 
-const userError = defineErrors({
+const userError = Errors.define({
 	not_found: (id: string) => ({ message: `no user with id ${id}`, id }),
 });
 type UserError = ErrorsOf<typeof userError>;
@@ -41,7 +40,7 @@ class Config {
 class Db {
 	constructor(private readonly config: Config) {}
 	static *init() {
-		return new Db(yield* get(Config));
+		return new Db(yield* Services.get(Config));
 	}
 	get(id: string, scheduler: Scheduler): Promise<string | undefined> {
 		return new Promise((resolve) => {
@@ -58,7 +57,7 @@ class Db {
 class UserRepo {
 	constructor(private readonly db: Db) {}
 	static *init() {
-		return new UserRepo(yield* get(Db));
+		return new UserRepo(yield* Services.get(Db));
 	}
 	find(id: string): Safe<User, UserError, never> {
 		const db = this.db;
@@ -74,7 +73,7 @@ class UserRepo {
 
 const greet = (id: string) =>
 	Safe.try(function* () {
-		const repo = yield* get(UserRepo);
+		const repo = yield* Services.get(UserRepo);
 		const user = yield* repo.find(id);
 		return `found: ${user.name}`;
 	}).catchTag("not_found", (e) => Safe.ok(`handled: not_found ${e.id}`));
@@ -82,7 +81,7 @@ const greet = (id: string) =>
 const show = (exit: Outcome<string, never>): string =>
 	exit._tag === "success" ? exit.value : exit._tag;
 
-const runtime = makeRuntime([UserRepo, Db, Config]);
+const runtime = Services.runtime([UserRepo, Db, Config]);
 console.log(show(await runtime.run(greet("u1"))));
 console.log(show(await runtime.run(greet("u2"))));
 console.log(show(await runtime.run(greet("slow"), { signal: AbortSignal.timeout(20) })));

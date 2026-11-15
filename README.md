@@ -7,14 +7,14 @@ One effect system: a lazy `Safe<A, E, R>`. Every question has exactly one answer
 | Question | Answer |
 |---|---|
 | a call can throw or reject | `Safe.call(fn, mapErr?)` — sync and async alike |
-| a class needs dependencies and a lifetime | `get` / `provide` / `makeRuntime`, plus `dispose` or `acquireRelease` |
+| a class needs dependencies and a lifetime | `Services.get` / `Services.provide` / `Services.runtime`, plus `dispose` or `acquireRelease` |
 
 The rule that keeps it one system: **declare a mapper and the throw becomes a typed `fail`; omit it and the throw is a `die`** — a defect, never something you declared. No other construct in the library catches.
 
 ## One boundary
 
 ```ts
-import { run, Safe } from "safe-ts";
+import { Safe } from "safe-ts";
 
 const parse = (text: string) =>
 	Safe.call(
@@ -39,7 +39,7 @@ The callback receives a `Scheduler` instead of a bare `AbortSignal`. It owns the
 
 ```ts
 const wait = (s: Scheduler) => s.sleep(500).then(() => "late");
-await run(Safe.call(wait), { signal: AbortSignal.timeout(10) }); // interrupt
+await Safe.run(Safe.call(wait), { signal: AbortSignal.timeout(10) }); // interrupt
 ```
 
 | | |
@@ -55,7 +55,7 @@ await run(Safe.call(wait), { signal: AbortSignal.timeout(10) }); // interrupt
 ## Sequencing: `Safe.try`
 
 ```ts
-import { run, Safe } from "safe-ts";
+import { Safe } from "safe-ts";
 
 const load = (path: string) =>
 	Safe.try(async function* () {
@@ -65,11 +65,11 @@ const load = (path: string) =>
 		return config;
 	}); // Safe<Config, "unreadable" | "bad_json" | "unnamed", never>
 
-const exit = await run(load("./app.json"));
+const exit = await Safe.run(load("./app.json"));
 ```
 
-- `Safe.try` is lazy. It returns a `Safe`, and nothing runs until `run`. Each `run` runs the body again.
-- Inside the body, `yield*` works on a `Safe` or on `get(Class)`. A failure stops the body there; `return value` succeeds.
+- `Safe.try` is lazy. It returns a `Safe`, and nothing runs until `Safe.run`. Each `Safe.run` runs the body again.
+- Inside the body, `yield*` works on a `Safe` or on `Services.get(Class)`. A failure stops the body there; `return value` succeeds.
 - When a `yield*` stops the body early, its `finally` blocks run (neverthrow #696 does not). An async body can `await` in `finally`.
 - The generator is the combinator: there is no `map` or `andThen`.
 
@@ -87,7 +87,7 @@ const exit = await run(load("./app.json"));
 ## Services: plain classes
 
 ```ts
-import { get, instance, provide, run, Safe, Safe.try } from "safe-ts";
+import { Safe, Services } from "safe-ts";
 
 // A value-only service: it reads no environment of its own.
 class Config {
@@ -100,7 +100,7 @@ class Config {
 class Db {
 	constructor(private readonly pool: Pool) {}
 	static async *init() {
-		const config = yield* get(Config);
+		const config = yield* Services.get(Config);
 		if (!config.url) return yield* Safe.err(dbError.no_url());
 		return new Db(await connect(config.url));
 	}
@@ -115,44 +115,44 @@ class Db {
 }
 
 const program = Safe.try(async function* () {
-	const db = yield* get(Db); // adds Db to R
+	const db = yield* Services.get(Db); // adds Db to R
 	return yield* Safe.call(() => db.query("select 1"));
 }); // Safe<Row[], never, typeof Db>
 
 // The environment enters at the composition root, once.
 const { DB_URL } = process.env;
-run(program); // compile error: R is Db, not never
-run(provide(program, [Db, instance(Config, new Config(DB_URL ?? "sqlite://app.db"))]));
+Safe.run(program); // compile error: R is Db, not never
+Safe.run(Services.provide(program, [Db, Services.instance(Config, new Config(DB_URL ?? "sqlite://app.db"))]));
 ```
 
 - A service is a class with a generator `static *init()` (or `static async *init()`). The constructor takes what the class needs; `init` gets it.
-- Dependencies are named in `init` with `yield* get(Other)`, not in the constructor. TypeScript erases parameter types at runtime, so `constructor(config: Config)` alone cannot tell the library to build a `Config`.
-- `init` is always a generator — the same shape a `Safe.try` body has. It can `yield*` a `get` or a `Safe`, and it fails with `yield* Safe.err(e)`. A body with nothing to `yield` is still a generator: `static *init() { return new Config(url); }`. A plain `static init()` does not compile.
-- A service reads no environment and no globals. Read them once at the composition root and hand the value in: `instance(Config, new Config(url))`.
+- Dependencies are named in `init` with `yield* Services.get(Other)`, not in the constructor. TypeScript erases parameter types at runtime, so `constructor(config: Config)` alone cannot tell the library to build a `Config`.
+- `init` is always a generator — the same shape a `Safe.try` body has. It can `yield*` a `Services.get` or a `Safe`, and it fails with `yield* Safe.err(e)`. A body with nothing to `yield` is still a generator: `static *init() { return new Config(url); }`. A plain `static init()` does not compile.
+- A service reads no environment and no globals. Read them once at the composition root and hand the value in: `Services.instance(Config, new Config(url))`.
 - The classes an `init` gets are that class's requirements. The failures it yields join `E`.
-- `provide(safe, [classes])` removes those classes from `R` and adds any requirements they leave unprovided, so an outer `provide` can supply them. `run` only accepts `R = never`.
-- Each class builds once per `provide`, on first `get`. `init` is not interruptible.
-- An instance that declares `*dispose()` (or `async *dispose()`) has it called, last-built first, when the scope that built it closes: the `provide` region, or `runtime.dispose()` for a runtime. It is a generator like `init`, driven by the same driver, so cleanup may `yield*` a `get(Dep)`; last-built-first order means a dependency is still alive when its dependents clean up.
+- `Services.provide(safe, [classes])` removes those classes from `R` and adds any requirements they leave unprovided, so an outer `Services.provide` can supply them. `Safe.run` only accepts `R = never`.
+- Each class builds once per `Services.provide`, on first `Services.get`. `init` is not interruptible.
+- An instance that declares `*dispose()` (or `async *dispose()`) has it called, last-built first, when the scope that built it closes: the `Services.provide` region, or `runtime.dispose()` for a runtime. It is a generator like `init`, driven by the same driver, so cleanup may `yield*` a `Services.get(Dep)`; last-built-first order means a dependency is still alive when its dependents clean up.
 - A `dispose` that is not a generator, or that fails, is a defect — the first names the rule (`*dispose() { … }`), the second follows any throwing finalizer.
 - `dispose` is a name, not a language symbol: an instance used with `await using` will not be cleaned up by it.
-- `instance(Db, new FakeDb())` uses a ready instance instead of calling `init` — the test seam, and how an environment value reaches a value-only service. A class with private fields can only be overridden by a subclass instance.
+- `Services.instance(Db, new FakeDb())` uses a ready instance instead of calling `init` — the test seam, and how an environment value reaches a value-only service. A class with private fields can only be overridden by a subclass instance.
 
-### `makeRuntime`
+### `Services.runtime`
 
 ```ts
-const runtime = makeRuntime([UserRepo, Db, Config]);
+const runtime = Services.runtime([UserRepo, Db, Config]);
 await runtime.run(handleRequest(req), { signal: req.signal });
 await runtime.dispose();
 ```
 
-`makeRuntime` builds classes on first use, shares the instances across `runtime.run(...)` calls, and disposes them on `runtime.dispose()`. The list must be closed: `makeRuntime([Db])` does not compile when `Db`'s `init` gets `Config`. A failed build is retried on the next run.
+`Services.runtime` builds classes on first use, shares the instances across `runtime.run(...)` calls, and disposes them on `runtime.dispose()`. The list must be closed: `Services.runtime([Db])` does not compile when `Db`'s `init` gets `Config`. A failed build is retried on the next run.
 
 ## Errors as data
 
 ```ts
-import { defineErrors, type ErrorsOf, renderError } from "safe-ts";
+import { Errors, type ErrorsOf } from "safe-ts";
 
-const readError = defineErrors({
+const readError = Errors.define({
 	not_found: (path: string) => ({ message: `no such file: ${path}`, path }),
 	denied: (path: string, cause: unknown) => ({ message: `permission denied: ${path}`, path, cause }),
 });
@@ -161,17 +161,17 @@ const readError = defineErrors({
 type ReadError = ErrorsOf<typeof readError>;
 
 readError.not_found("/a"); // { not_found: { message: "no such file: /a", path: "/a" } }
-renderError(readError.not_found("/a")); // "error: not_found\n\nno such file: /a"
+Errors.render(readError.not_found("/a")); // "error: not_found\n\nno such file: /a"
 ```
 
-- `defineErrors` wraps each factory's payload under its key. The key is the tag; the library adds no field of its own, so a `message` exists only because the factory declared one.
+- `Errors.define` wraps each factory's payload under its key. The key is the tag; the library adds no field of its own, so a `message` exists only because the factory declared one.
 - Narrow by the key, not by a field: `"not_found" in error`. `CodeOf<E>` is the union of tags, `Arm<E, K>` the arm, `Payload<E, K>` its value.
-- A factory may return `cause`, the equivalent of thiserror's `#[source]`. `renderError` prints it as `caused by:`, and a payload with no `message` renders as `error: <code>` alone.
+- A factory may return `cause`, the equivalent of thiserror's `#[source]`. `Errors.render` prints it as `caused by:`, and a payload with no `message` renders as `error: <code>` alone.
 - `Safe.catchTag(key, handler)` removes that variant from the error type, adds whatever the handler can fail with, and hands the handler the payload.
 
 ## Outcome
 
-`run` never rejects. It returns one flat `Outcome`:
+`Safe.run` never rejects. It returns one flat `Outcome`:
 
 ```ts
 type Outcome<A, E> =
@@ -187,13 +187,13 @@ A throw anywhere in user code — a `Safe.try` body, a service `init`, an unmapp
 
 ## Interruption and cleanup
 
-- `run(safe, { signal })` interrupts the run when the signal aborts. `Safe.try` stops before its next step. `Scheduler.sleep` and `Scheduler.onCancel` are how a callback cooperates.
+- `Safe.run(safe, { signal })` interrupts the run when the signal aborts. `Safe.try` stops before its next step. `Scheduler.sleep` and `Scheduler.onCancel` are how a callback cooperates.
 - `Safe.all([...])` runs concurrently. The first `fail` or `die` aborts the others.
 - `Safe.acquireRelease` and `Safe.scoped` register cleanup. Releases run last-in, first-out on success, fail, die and interrupt.
 
 ## Not included
 
-Fibers, `fork`/`join`, retry and schedule operators, a `timeout` operator (pass `AbortSignal.timeout(ms)` to `run`), decorators or a DI container, streams, schemas and tracing.
+Fibers, `fork`/`join`, retry and schedule operators, a `timeout` operator (pass `AbortSignal.timeout(ms)` to `Safe.run`), decorators or a DI container, streams, schemas and tracing.
 
 Also deliberately absent: a second effect type, a second boundary, and a second outcome type. The eager `Result` layer — its combinators, its two boundary adapters and its standalone `catchTag` — is gone, along with the `Safe` constructors that duplicated `Safe.call`, `Safe.ok` and `Safe.err`, and the nested cause type that duplicated `Outcome`'s failure arms. Each question above has exactly one answer.
 
@@ -205,10 +205,10 @@ Each file under `examples/` runs standalone (`bun run <file>`), easy to hard:
 |---|---|
 | `examples/01-boundaries.ts` | `Safe.call` with and without a mapper, `fail` vs `die`, `Scheduler.sleep` |
 | `examples/02-safe-try.ts` | `Safe.try` laziness, `yield*` on a `Safe`, `finally` on early stop |
-| `examples/03-typed-errors.ts` | `defineErrors`, `Safe.catchTag`, `renderError`, `die` vs `fail` |
-| `examples/04-services.ts` | class services, `get`, `provide`, `instance`, `dispose` |
+| `examples/03-typed-errors.ts` | `Errors.define`, `Safe.catchTag`, `Errors.render`, `die` vs `fail` |
+| `examples/04-services.ts` | class services, `Services.get`, `Services.provide`, `Services.instance`, `dispose` |
 | `examples/05-concurrency-and-cleanup.ts` | `Safe.all`, `Scheduler.sleep`, `acquireRelease`, `scoped` |
-| `examples/user-service.ts` | all of it end to end with `makeRuntime` and `Scheduler.onCancel` |
+| `examples/user-service.ts` | all of it end to end with `Services.runtime` and `Scheduler.onCancel` |
 
 ## Develop
 

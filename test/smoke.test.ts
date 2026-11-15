@@ -1,22 +1,30 @@
 import { expect, test } from "bun:test";
 import * as safe from "../src/index.ts";
 
-test("entry exports the one surface", () => {
+test("entry exports five values, three of them namespaces", () => {
 	expect(safe.VERSION).toBe("0.1.0");
+	for (const name of ["Outcome", "Safe", "Scheduler", "Services", "Errors"]) {
+		expect(name in safe).toBe(true);
+	}
+	// The loose names are gone: each question has one namespace to live in.
 	for (const name of [
 		"all",
 		"defineErrors",
 		"renderError",
-		"Outcome",
 		"makeRuntime",
 		"run",
-		"Safe",
-		"Scheduler",
 		"get",
 		"provide",
 		"instance",
 	]) {
-		expect(name in safe).toBe(true);
+		expect(name in safe).toBe(false);
+	}
+	expect("run" in safe.Safe).toBe(true);
+	for (const name of ["get", "provide", "instance", "runtime"]) {
+		expect(name in safe.Services).toBe(true);
+	}
+	for (const name of ["define", "render"]) {
+		expect(name in safe.Errors).toBe(true);
 	}
 });
 
