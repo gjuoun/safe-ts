@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Outcome } from "../src/outcome.ts";
-import { makeRuntime } from "../src/runtime.ts";
+import { Runtime } from "../src/runtime.ts";
 import { run, Safe } from "../src/safe.ts";
 import { get, provide } from "../src/services.ts";
 
@@ -136,7 +136,7 @@ describe("runtime", () => {
 	test("runtime builds once across 3 runs", async () => {
 		const counters = { builds: 0, released: 0 };
 		const Db = makeDb(counters);
-		const rt = makeRuntime([Db]);
+		const rt = Runtime.make([Db]);
 		const q = Safe.try(function* () {
 			return (yield* get(Db)).query();
 		});
@@ -154,7 +154,7 @@ describe("runtime", () => {
 	test("dispose releases after use", async () => {
 		const counters = { builds: 0, released: 0 };
 		const Db = makeDb(counters);
-		const rt = makeRuntime([Db]);
+		const rt = Runtime.make([Db]);
 		const open = Safe.try(function* () {
 			return (yield* get(Db)).open;
 		});
@@ -169,7 +169,7 @@ describe("runtime", () => {
 	});
 
 	test("run after dispose is a die", async () => {
-		const rt = makeRuntime([makeDb({ builds: 0, released: 0 })]);
+		const rt = Runtime.make([makeDb({ builds: 0, released: 0 })]);
 		await rt.dispose();
 		const exit = await rt.run(Safe.ok(1));
 		expect(exit._tag).toBe("die");
@@ -178,7 +178,7 @@ describe("runtime", () => {
 	test("a per-run abort does not tear down runtime services", async () => {
 		const counters = { builds: 0, released: 0 };
 		const Db = makeDb(counters);
-		const rt = makeRuntime([Db]);
+		const rt = Runtime.make([Db]);
 		const slow = Safe.try(function* () {
 			yield* get(Db);
 			return yield* Safe.call(() => new Promise<never>(() => {}));
@@ -201,7 +201,7 @@ describe("runtime", () => {
 				return new Flaky();
 			}
 		}
-		const rt = makeRuntime([Flaky]);
+		const rt = Runtime.make([Flaky]);
 		const use = Safe.try(function* () {
 			yield* get(Flaky);
 			return attempts;

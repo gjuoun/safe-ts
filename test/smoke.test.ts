@@ -3,7 +3,7 @@ import * as safe from "../src/index.ts";
 
 test("entry exports five values, three of them namespaces", () => {
 	expect(safe.VERSION).toBe("0.1.0");
-	for (const name of ["Outcome", "Safe", "Scheduler", "Services", "Errors"]) {
+	for (const name of ["Outcome", "Runtime", "Safe", "Scheduler", "Services", "Errors"]) {
 		expect(name in safe).toBe(true);
 	}
 	// The loose names are gone: each question has one namespace to live in.
@@ -19,10 +19,15 @@ test("entry exports five values, three of them namespaces", () => {
 	]) {
 		expect(name in safe).toBe(false);
 	}
-	expect("run" in safe.Safe).toBe(true);
-	for (const name of ["get", "provide", "instance", "runtime"]) {
+	// The executor lives on Runtime: one-shot, factory, instance run.
+	expect("run" in safe.Safe).toBe(false);
+	for (const name of ["run", "make"]) {
+		expect(name in safe.Runtime).toBe(true);
+	}
+	for (const name of ["get", "provide", "new"]) {
 		expect(name in safe.Services).toBe(true);
 	}
+	expect("runtime" in safe.Services).toBe(false);
 	for (const name of ["define", "render"]) {
 		expect(name in safe.Errors).toBe(true);
 	}

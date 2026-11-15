@@ -8,7 +8,7 @@
 // `fail` — defects never travel the typed channel.
 //
 //   bun run examples/03-typed-errors.ts
-import { Errors, type ErrorsOf, Outcome, Safe, type TaggedError } from "../src/index.ts";
+import { Errors, type ErrorsOf, Outcome, Runtime, Safe, type TaggedError } from "../src/index.ts";
 
 // One factory per variant; the key is the only place the tag is written.
 const storageError = Errors.define({
@@ -46,14 +46,14 @@ const show = <E extends TaggedError>(exit: Outcome<unknown, E>): string => {
 	return "interrupt";
 };
 
-console.log(show(await Safe.run(withFallback("readme"))));
-console.log(show(await Safe.run(withFallback("missing"))));
-console.log(show(await Safe.run(fetchObject("readme"))));
+console.log(show(await Runtime.run(withFallback("readme"))));
+console.log(show(await Runtime.run(withFallback("missing"))));
+console.log(show(await Runtime.run(fetchObject("readme"))));
 
 // A throw is a defect: `die`, never a typed `fail`.
 console.log(
 	show(
-		await Safe.run(
+		await Runtime.run(
 			Safe.call(() => {
 				throw new Error("boom");
 			}),

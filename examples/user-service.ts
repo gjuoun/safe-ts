@@ -11,6 +11,7 @@ import {
 	Errors,
 	type ErrorsOf,
 	type Outcome,
+	Runtime,
 	Safe,
 	type Scheduler,
 	Services,
@@ -81,7 +82,7 @@ const greet = (id: string) =>
 const show = (exit: Outcome<string, never>): string =>
 	exit._tag === "success" ? exit.value : exit._tag;
 
-const runtime = Services.runtime([UserRepo, Db, Config]);
+const runtime = Runtime.make([UserRepo, Db, Config]);
 console.log(show(await runtime.run(greet("u1"))));
 console.log(show(await runtime.run(greet("u2"))));
 console.log(show(await runtime.run(greet("slow"), { signal: AbortSignal.timeout(20) })));

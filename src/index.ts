@@ -1,18 +1,19 @@
-// safe-ts — public entry. Five values, three of them namespaces.
+// safe-ts — public entry. Six values, three of them namespaces.
 //
 // One effect system: a lazy `Safe<A, E, R>`.
-//   Safe:      run, ok, err, call, try, all, acquireRelease, scoped, catchTag
-//   Services:  get, provide, instance, runtime
+//   Safe:      ok, err, call, try, all, acquireRelease, scoped, catchTag
+//   Services:  get, provide, new
 //   Errors:    define, render
+//   Runtime:   run (one-shot), make (owning), instance run/dispose
 //   Outcome, Scheduler: classes
 import { defineErrors, renderError } from "./errors.ts";
-import { makeRuntime } from "./runtime.ts";
+import { Runtime } from "./runtime.ts";
 import { get, instance, provide } from "./services.ts";
 
 export const VERSION = "0.1.0";
 
-/** Services: get one, provide classes, seed an instance, build a runtime. */
-export const Services = { get, instance, provide, runtime: makeRuntime };
+/** Services: get one, provide classes, seed a ready instance. */
+export const Services = { get, new: instance, provide };
 
 /** Error catalogs: define a set of variants, render one. */
 export const Errors = { define: defineErrors, render: renderError };
@@ -27,7 +28,7 @@ export type {
 	TaggedError,
 } from "./errors.ts";
 export { Outcome } from "./outcome.ts";
-export type { Runtime } from "./runtime.ts";
+export { Runtime } from "./runtime.ts";
 export { type RunOptions, Safe } from "./safe.ts";
 export { Scheduler } from "./scheduler.ts";
 export type { Finalizer } from "./scope.ts";

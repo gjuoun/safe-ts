@@ -12,7 +12,7 @@
 // `init`, so cleanup can `yield*` a `Services.get(Dep)`.
 //
 //   bun run examples/04-services.ts
-import { Errors, type Outcome, Safe, Services } from "../src/index.ts";
+import { Errors, type Outcome, Runtime, Safe, Services } from "../src/index.ts";
 
 class Logger {
 	static *init() {
@@ -86,11 +86,11 @@ const show = <A, E>(exit: Outcome<A, E>): string => {
 const { DB_URL } = process.env;
 console.log(
 	show(
-		await Safe.run(
+		await Runtime.run(
 			Services.provide(createUser("ada"), [
 				Db,
 				Mailer,
-				Services.instance(Config, new Config(DB_URL ?? "sqlite://app.db")),
+				Services.new(Config, new Config(DB_URL ?? "sqlite://app.db")),
 				Logger,
 			]),
 		),
@@ -100,11 +100,11 @@ console.log(
 // A failing init is a typed fail — nothing else gets built.
 console.log(
 	show(
-		await Safe.run(
+		await Runtime.run(
 			Services.provide(createUser("ada"), [
 				Db,
 				Mailer,
-				Services.instance(Config, new Config("")),
+				Services.new(Config, new Config("")),
 				Logger,
 			]),
 		),
@@ -119,9 +119,9 @@ class MemoryDb extends Db {
 }
 console.log(
 	show(
-		await Safe.run(
+		await Runtime.run(
 			Services.provide(createUser("ada"), [
-				Services.instance(Db, new MemoryDb("memory://")),
+				Services.new(Db, new MemoryDb("memory://")),
 				Mailer,
 				Logger,
 			]),

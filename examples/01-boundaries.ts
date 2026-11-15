@@ -6,7 +6,7 @@
 // you declared. The callback gets a `Scheduler`, which owns cancellation.
 //
 //   bun run examples/01-boundaries.ts
-import { type Outcome, Safe } from "../src/index.ts";
+import { type Outcome, Runtime, Safe } from "../src/index.ts";
 
 const show = <A, E>(exit: Outcome<A, E>): string => {
 	switch (exit._tag) {
@@ -28,25 +28,25 @@ const parseJson = (text: string) =>
 		(): "bad_json" => "bad_json",
 	);
 
-console.log(show(await Safe.run(parseJson('{"name":"demo"}'))));
-console.log(show(await Safe.run(parseJson("{"))));
+console.log(show(await Runtime.run(parseJson('{"name":"demo"}'))));
+console.log(show(await Runtime.run(parseJson("{"))));
 
 // The same call with no mapper: the throw is a defect, not a typed error.
-console.log(show(await Safe.run(Safe.call(() => JSON.parse("{")))));
+console.log(show(await Runtime.run(Safe.call(() => JSON.parse("{")))));
 
 // A promise that rejects, mapped and unmapped.
 const failing = (): Promise<string> => Promise.reject(new Error("ECONNREFUSED"));
 
 console.log(
-	show(await Safe.run(Safe.call(failing, (reason): string => (reason as Error).message))),
+	show(await Runtime.run(Safe.call(failing, (reason): string => (reason as Error).message))),
 );
-console.log(show(await Safe.run(Safe.call(failing))));
+console.log(show(await Runtime.run(Safe.call(failing))));
 
 // `Scheduler.sleep` is cancelled by the run's signal — there is no listener to
 // wire by hand, and none to forget.
 console.log(
 	show(
-		await Safe.run(
+		await Runtime.run(
 			Safe.call((s) => s.sleep(500).then(() => "late")),
 			{ signal: AbortSignal.timeout(10) },
 		),

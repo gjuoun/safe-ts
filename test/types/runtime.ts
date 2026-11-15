@@ -1,5 +1,5 @@
 import type { Outcome } from "../../src/outcome.ts";
-import { makeRuntime } from "../../src/runtime.ts";
+import { Runtime } from "../../src/runtime.ts";
 import { Safe } from "../../src/safe.ts";
 import { get } from "../../src/services.ts";
 import { assertType, type Equal } from "./assert.ts";
@@ -25,7 +25,7 @@ class Other {
 	}
 }
 
-const rt = makeRuntime([Db, Config]);
+const rt = Runtime.make([Db, Config]);
 
 const exit = rt.run(
 	Safe.try(function* () {
@@ -41,4 +41,4 @@ const needsOther = Safe.try(function* () {
 rt.run(needsOther);
 
 // @ts-expect-error Db's init gets Config, which the list does not contain
-makeRuntime([Db]);
+Runtime.make([Db]);
