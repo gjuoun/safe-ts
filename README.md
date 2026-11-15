@@ -87,13 +87,13 @@ const exit = await run(load("./app.json"));
 ## Services: plain classes
 
 ```ts
-import { get, provide, run, Safe, Safe.try } from "safe-ts";
+import { get, override, provide, run, Safe, Safe.try } from "safe-ts";
 
-// A value-only service: its value is a param, never a global.
+// A value-only service: it reads no environment of its own.
 class Config {
 	constructor(readonly url: string) {}
-	static *init(params: { url: string }) {
-		return new Config(params.url);
+	static init() {
+		return new Config("sqlite://app.db");
 	}
 }
 
@@ -119,29 +119,28 @@ const program = Safe.try(async function* () {
 	return yield* Safe.call(() => db.query("select 1"));
 }); // Safe<Row[], never, typeof Db>
 
-// The environment enters at the composition root, once, as params.
+// The environment enters at the composition root, once.
 const { DB_URL } = process.env;
 run(program); // compile error: R is Db, not never
-run(provide(program, [Db, Config], { url: DB_URL ?? "sqlite://app.db" }));
+run(provide(program, [Db, override(Config, new Config(DB_URL ?? "sqlite://app.db"))]));
 ```
 
 - A service is a class with a generator `static *init()` (or `static async *init()`). The constructor takes what the class needs; `init` gets it.
 - Dependencies are named in `init` with `yield* get(Other)`, not in the constructor. TypeScript erases parameter types at runtime, so `constructor(config: Config)` alone cannot tell the library to build a `Config`.
 - `init` is always a generator — the same shape a `Safe.try` body has. It can `yield*` a `get` or a `Safe`, and it fails with `yield* Safe.err(e)`. A body with nothing to `yield` is still a generator: `static *init() { return new Config(url); }`. A plain `static init()` does not compile.
-- `init` takes one argument: the params. `provide(safe, [classes], params)` and `makeRuntime([classes], params)` hand the same object to every `init`, and the argument is required exactly when some entry declares one — `provide(program, [Db, Config])` does not compile once `Config.init` declares params.
-- A service reads no environment and no globals. Read them once at the composition root and pass them as params. Params are not part of `R`: they are a build input, not a service.
+- A service reads no environment and no globals. Read them once at the composition root and hand the value in: `override(Config, new Config(url))`.
 - The classes an `init` gets are that class's requirements. The failures it yields join `E`.
 - `provide(safe, [classes])` removes those classes from `R` and adds any requirements they leave unprovided, so an outer `provide` can supply them. `run` only accepts `R = never`.
 - Each class builds once per `provide`, on first `get`. `init` is not interruptible.
 - An instance that declares `*dispose()` (or `async *dispose()`) has it called, last-built first, when the scope that built it closes: the `provide` region, or `runtime.dispose()` for a runtime. It is a generator like `init`, driven by the same driver, so cleanup may `yield*` a `get(Dep)`; last-built-first order means a dependency is still alive when its dependents clean up.
 - A `dispose` that is not a generator, or that fails, is a defect — the first names the rule (`*dispose() { … }`), the second follows any throwing finalizer.
 - `dispose` is a name, not a language symbol: an instance used with `await using` will not be cleaned up by it.
-- `override(Db, new FakeDb())` uses a ready instance instead of calling `init` — the test seam only. It wins over params (an overridden class never builds), and a class with private fields can only be overridden by a subclass instance.
+- `override(Db, new FakeDb())` uses a ready instance instead of calling `init` — the test seam, and how an environment value reaches a value-only service. A class with private fields can only be overridden by a subclass instance.
 
 ### `makeRuntime`
 
 ```ts
-const runtime = makeRuntime([UserRepo, Db, Config], { url: DB_URL ?? "sqlite://app.db" });
+const runtime = makeRuntime([UserRepo, Db, Config]);
 await runtime.run(handleRequest(req), { signal: req.signal });
 await runtime.dispose();
 ```

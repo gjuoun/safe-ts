@@ -38,16 +38,12 @@ import {
 } from "./safe.ts";
 import { type Finalizer, Scope } from "./scope.ts";
 
-/**
- * The shape every service class has: `init` is always a generator, and it takes
- * the run's params — one object, the same one for every class. A class that
- * needs none writes `static *init()`, which is a `ServiceClass<undefined>`.
- */
-export interface ServiceClass<P = undefined> {
-	init(params: P): AnyGenerator;
+/** The shape every service class has: `init` is always a generator. */
+export interface ServiceClass {
+	init(): AnyGenerator;
 }
 
-type InitOut<C> = C extends { init: (...args: never[]) => infer O } ? O : never;
+type InitOut<C> = C extends { init: () => infer O } ? O : never;
 type GenYield<O> =
 	O extends Generator<infer Y, any, any>
 		? Y
@@ -73,64 +69,45 @@ export type DepsOf<C> = YieldRequirement<GenYield<InitOut<C>>>;
 export type InitError<C> = YieldError<GenYield<InitOut<C>>>;
 
 /** A ready instance standing in for a class (tests, fakes). */
-export interface Override<C extends ServiceClass<any>> {
+export interface Override<C extends ServiceClass> {
 	readonly _tag: "Override";
 	readonly service: C;
 	readonly instance: Instance<C>;
 }
 
-export type Entry = ServiceClass<any> | Override<ServiceClass<any>>;
+export type Entry = ServiceClass | Override<ServiceClass>;
 
 export type ClassOf<En> = En extends Override<infer C> ? C : En;
-export type EntryDeps<En> = En extends Override<ServiceClass<any>> ? never : DepsOf<En>;
-export type EntryError<En> = En extends Override<ServiceClass<any>> ? never : InitError<En>;
-
-/** The params an entry's `init` declares: `void` when it takes none. */
-export type ParamsOf<C> = C extends { init: (...args: infer A) => AnyGenerator }
-	? A extends []
-		? undefined
-		: A[0]
-	: undefined;
-
-/** What `provide` must pass for these entries; `void` when none declares params. */
-export type EntryParams<En> = En extends Override<ServiceClass<any>> ? undefined : ParamsOf<En>;
-
-/** The params argument: required exactly when an entry declares one. */
-export type ParamsArg<En, Params> = [Exclude<EntryParams<En>, undefined>] extends [never]
-	? [params?: Params]
-	: [params: Params & EntryParams<En>];
+export type EntryDeps<En> = En extends Override<ServiceClass> ? never : DepsOf<En>;
+export type EntryError<En> = En extends Override<ServiceClass> ? never : InitError<En>;
 
 /** Ask for a service inside Safe.try or an `init`: `const db = yield* get(Db)`. */
-export function* get<C extends ServiceClass<any>>(service: C): Generator<C, Instance<C>, any> {
+export function* get<C extends ServiceClass>(service: C): Generator<C, Instance<C>, any> {
 	return yield service;
 }
 
 /** Use `instance` for class `service` instead of calling its `init`. */
-export const override = <C extends ServiceClass<any>>(
+export const override = <C extends ServiceClass>(
 	service: C,
 	instance: Instance<C>,
 ): Override<C> => ({ _tag: "Override", service, instance });
 
-/**
- * Satisfy class requirements of `safe` with the listed classes. The params
- * object is handed to every `init`; it is required when any entry declares one.
- */
-export const provide = <A, E, R, const P extends readonly Entry[], Params = undefined>(
+/** Satisfy class requirements of `safe` with the listed classes. */
+export const provide = <A, E, R, const P extends readonly Entry[]>(
 	safe: Safe<A, E, R>,
 	entries: P,
-	...rest: ParamsArg<P[number], Params>
 ): Safe<A, E | EntryError<P[number]>, Exclude<R | EntryDeps<P[number]>, ClassOf<P[number]>>> =>
 	new Safe<A, E | EntryError<P[number]>, Exclude<R | EntryDeps<P[number]>, ClassOf<P[number]>>>(
 		async (ctx) => {
 			const scope = new Scope();
-			const lookup = makeLookup(entries, ctx, scope, rest[0]);
+			const lookup = makeLookup(entries, ctx, scope);
 			return scope.close(await exec(safe, { ...ctx, lookup }));
 		},
 	);
 
-const isOverride = (e: Entry): e is Override<ServiceClass<any>> => typeof e !== "function";
+const isOverride = (e: Entry): e is Override<ServiceClass> => typeof e !== "function";
 
-export const nameOf = (service: ServiceClass<any>): string =>
+export const nameOf = (service: ServiceClass): string =>
 	(service as { name?: string }).name || "anonymous";
 
 const isGenerator = (value: unknown): value is AnyGenerator =>
@@ -144,15 +121,10 @@ const isGenerator = (value: unknown): value is AnyGenerator =>
  * other class to `ctx.lookup`. Built instances register their `dispose` hook
  * on `scope`.
  */
-export const makeLookup = (
-	entries: readonly Entry[],
-	ctx: Ctx,
-	scope: Scope,
-	params: unknown,
-): Lookup => {
-	const own = new Map<ServiceClass<any>, Entry>();
+export const makeLookup = (entries: readonly Entry[], ctx: Ctx, scope: Scope): Lookup => {
+	const own = new Map<ServiceClass, Entry>();
 	for (const entry of entries) own.set(isOverride(entry) ? entry.service : entry, entry);
-	const memo = new Map<ServiceClass<any>, Promise<Outcome<unknown, unknown>>>();
+	const memo = new Map<ServiceClass, Promise<Outcome<unknown, unknown>>>();
 	const outer = ctx.lookup;
 
 	const lookup: Lookup = (service, path) => {
@@ -173,13 +145,13 @@ export const makeLookup = (
 
 	const build = async (
 		entry: Entry,
-		path: readonly ServiceClass<any>[],
+		path: readonly ServiceClass[],
 	): Promise<Outcome<unknown, unknown>> => {
 		if (isOverride(entry)) return Outcome.succeed(entry.instance);
 		// init runs uninterruptibly, resolving its dep lookups through this lookup.
 		const initCtx: Ctx = { ...ctx, signal: NEVER_ABORTED, lookup, path };
 		// `init` is always a generator, so one driver runs every lifecycle body.
-		const init = new Safe((c: Ctx) => drive(entry.init(params), c));
+		const init = new Safe((c: Ctx) => drive(entry.init(), c));
 		// exec turns a throw from init into a die.
 		const exit = await exec(init, initCtx);
 		if (exit._tag === "success") {

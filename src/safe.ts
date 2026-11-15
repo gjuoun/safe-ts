@@ -23,13 +23,13 @@ export interface Ctx {
 	/** Resolves a class service to its instance (see services.ts). */
 	readonly lookup: Lookup;
 	/** Classes whose `init` is running, outermost first (cycle detection). */
-	readonly path: readonly ServiceClass<any>[];
+	readonly path: readonly ServiceClass[];
 }
 
 /** Find (building on first use) the instance for a class service. */
 export type Lookup = (
-	service: ServiceClass<any>,
-	path: readonly ServiceClass<any>[],
+	service: ServiceClass,
+	path: readonly ServiceClass[],
 ) => Promise<Outcome<unknown, unknown>>;
 
 /** The lookup outside every `provide`: nothing is provided here. */
@@ -232,12 +232,12 @@ export const run = async <A, E>(
 // --- Sequencing ---
 
 /** Anything `yield*`-able inside `Safe.try`. */
-export type Yieldable = Safe<any, any, any> | ServiceClass<any>;
+export type Yieldable = Safe<any, any, any> | ServiceClass;
 
 export type YieldError<Y> = Y extends Safe<any, infer E, any> ? E : never;
 
 export type YieldRequirement<Y> =
-	Y extends Safe<any, any, infer R> ? R : Y extends ServiceClass<any> ? Y : never;
+	Y extends Safe<any, any, infer R> ? R : Y extends ServiceClass ? Y : never;
 
 export type AnyGenerator =
 	| Generator<unknown, unknown, unknown>
@@ -279,7 +279,7 @@ const close = async (it: AnyGenerator, outcome: Outcome<never, unknown>) => {
 
 type Step = { readonly next: unknown } | { readonly stop: Outcome<never, unknown> };
 
-const isServiceClass = (y: unknown): y is ServiceClass<any> =>
+const isServiceClass = (y: unknown): y is ServiceClass =>
 	typeof y === "function" && typeof (y as { init?: unknown }).init === "function";
 
 const resolveYield = async (y: unknown, ctx: Ctx): Promise<Step> => {

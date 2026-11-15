@@ -56,23 +56,6 @@ class PlainInit {
 // @ts-expect-error a plain init is not a service class
 provide(Safe.ok(1), [PlainInit]);
 
-// Params are a build input: an entry that declares them requires the argument.
-class NeedsParams {
-	constructor(readonly url: string) {}
-	static *init(params: { url: string }) {
-		return new NeedsParams(params.url);
-	}
-}
-
-// @ts-expect-error a params-taking entry requires the params argument
-provide(Safe.ok(1), [NeedsParams]);
-
-// @ts-expect-error the params must match what init declares
-provide(Safe.ok(1), [NeedsParams], { url: 1 });
-
-const paramsProvided = provide(Safe.ok(1), [NeedsParams], { url: "x" });
-assertType<Equal<typeof paramsProvided, Safe<number, never, never>>>();
-
 assertType<Equal<Instance<typeof Config>, Config>>();
 assertType<Equal<Instance<typeof Db>, Db>>();
 assertType<Equal<Instance<typeof UserRepo>, UserRepo>>();
