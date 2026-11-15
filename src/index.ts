@@ -44,7 +44,6 @@ export type {
 	ErrorFactories,
 	ErrorSpec,
 	ErrorsOf,
-	FailureMap,
 	FailureOf,
 	Payload,
 	TaggedError,

@@ -67,25 +67,25 @@ it honest, because `Safe` is covariant in `E`: produce one more variant than the
 signature names and the body stops compiling.
 
 ```ts
-import { Errors, Safe, type FailureMap, type FailureOf } from "@gjuoun/safe-ts";
+import { Errors, Safe, type FailureOf } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ status: 404, message: `no user ${id}`, id }),
 });
 
-// A map from tag to the tagged error. Index it to keep the tag in the signature.
-export type UserErrors = FailureMap<typeof userError>;
-declare const find: (id: string) => Safe<{ name: string }, UserErrors["not_found"]>;
-
-// Or name the variant once and use the name.
+// One line per variant, beside the catalog it belongs to.
 export type UserNotFound = FailureOf<typeof userError, "not_found">;
+
 declare const load: (id: string) => Safe<{ name: string }, UserNotFound>;
 ```
 
-Both spellings are the *tagged arm* `{ not_found: { … } }` — the shape a run produces.
-Indexing the union instead (`ErrorsOf<typeof userError>["not_found"]`) gives the payload
-without its tag, which is not assignable to a `Safe` failure; `FailureMap` and `FailureOf`
-both take the catalog and derive from the factory, so they cannot drift from the run.
+`FailureOf` takes the *catalog*, and its value is the factory's return type — the tagged
+arm `{ not_found: { … } }`, which is the shape a run produces. Indexing the union instead
+(`ErrorsOf<typeof userError>["not_found"]`) gives the payload without its tag, which is not
+assignable to a `Safe` failure.
+
+The whole union stays available as `ErrorsOf<typeof userError>` — that is what a composition
+root needs when it registers every domain at once.
 
 ## Rendering one for a human
 

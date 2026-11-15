@@ -66,25 +66,23 @@ console.log(await Runtime.run(tolerant));
 签名里没写的变体，就不再编译。
 
 ```ts
-import { Errors, Safe, type FailureMap, type FailureOf } from "@gjuoun/safe-ts";
+import { Errors, Safe, type FailureOf } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ status: 404, message: `no user ${id}`, id }),
 });
 
-// tag → 带 tag 的失败。索引它，签名里就带着 tag。
-export type UserErrors = FailureMap<typeof userError>;
-declare const find: (id: string) => Safe<{ name: string }, UserErrors["not_found"]>;
-
-// 或者把变体命名一次，签名里用名字。
+// 每个变体一行，就写在 catalog 旁边。
 export type UserNotFound = FailureOf<typeof userError, "not_found">;
+
 declare const load: (id: string) => Safe<{ name: string }, UserNotFound>;
 ```
 
-两种写法都是带 tag 的那层 `{ not_found: { … } }` —— 运行时真正产生的形状。
-反过来索引联合（`ErrorsOf<typeof userError>["not_found"]`）只会得到不带 tag 的 payload，
-赋不进 `Safe` 的失败通道；`FailureMap` / `FailureOf` 收的都是 catalog，从工厂本身推导，
-不会跟运行时漂移。
+`FailureOf` 收的是 **catalog**，值就是工厂的返回类型 —— 带 tag 的那层 `{ not_found: { … } }`，
+也就是运行时真正产生的形状。反过来索引联合（`ErrorsOf<typeof userError>["not_found"]`）
+只会得到不带 tag 的 payload，赋不进 `Safe` 的失败通道。
+
+整个联合仍然可用：`ErrorsOf<typeof userError>` —— 组合根一次性登记所有域时才需要它。
 
 ## 渲染给人看
 
