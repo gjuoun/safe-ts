@@ -105,6 +105,11 @@ export class Safe<A, E, R> {
 	 * Sequence Safes in a generator body. `yield*` runs a Safe (or `get(C)`)
 	 * and stops the body on its failure; the body's return value is the success
 	 * value. Lazy: nothing runs until `run`, and each `run` runs the body again.
+	 *
+	 * A plain `yield safe` is the hot-path form: the driver receives the Safe
+	 * directly instead of entering `yield*`'s delegation loop, which saves ~26 ns
+	 * per yielded step. The value comes back as `TNext`, so it needs a cast —
+	 * `const n = (yield getUser(id)) as User`.
 	 */
 	static try<Y extends Yieldable, T>(
 		body: () => Generator<Y, T, any>,

@@ -153,6 +153,29 @@ describe("Safe.try (async body)", () => {
 		expect(await run(s)).toEqual(Outcome.fail("stopped"));
 	});
 
+	// The hot-path form: a plain `yield` hands the Safe to the driver directly,
+	// so no `yield*` delegation frame is created per step (~26 ns per yield).
+	test("a plain yield body runs the same as yield*", async () => {
+		const s = Safe.try(function* () {
+			const a = (yield parse("1")) as number;
+			const b = (yield parse("2")) as number;
+			return a + b;
+		});
+		expect(await run(s)).toEqual(Outcome.succeed(3));
+	});
+
+	test("a plain yield body stops on the first failure", async () => {
+		let after = 0;
+		const s = Safe.try(function* () {
+			const a = (yield parse("1")) as number;
+			yield parse("nope");
+			after++;
+			return a;
+		});
+		expect(await run(s)).toEqual(Outcome.fail("nan: nope"));
+		expect(after).toBe(0);
+	});
+
 	test("a throwing finally on success is a die", async () => {
 		const defect = new Error("cleanup blew up");
 		const s = Safe.try(function* () {

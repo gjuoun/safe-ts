@@ -225,6 +225,21 @@ server actually has). Bun 1.3.14, arm64, 200,000 iterations, best of 5:
 The harness is `bun run /tmp/jun/bench/bench4.ts` — same program, three
 libraries, parity asserted first (all three print the same three results).
 
+### Hot path: `yield` instead of `yield*`
+
+`yield*` delegates: per yielded step the engine saves the generator frame,
+dispatches a builtin, re-enters with five hidden arguments and allocates a
+result object. A plain `yield` hands the `Safe` straight to the driver.
+
+| body | ns/op |
+|---|---|
+| `const n = yield* lookup(id)` | 452 |
+| `const n = (yield lookup(id)) as string` | 400 |
+
+Same program, same outcome — the cast is the price, because a plain `yield`
+resumes with `TNext` rather than the Safe's `A`. Use `yield*` for readability,
+`yield` inside a handler that runs per request.
+
 Two rules keep it there: a body that finished synchronously returns an
 `Outcome`, not a promise (`Safe.body`, `exec`, `drive` and `Scope.close` all
 take the sync branch), and the abort listener is attached only when something
