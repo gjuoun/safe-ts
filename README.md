@@ -2,6 +2,16 @@
 
 Typed errors and cancellable effects for TypeScript — without a fiber runtime.
 
+📖 Docs: [English](./docs/en/README.md) · [中文](./docs/zh/README.md)
+
+<details>
+<summary><b>Quick start</b> — install, one Safe, what it gives you</summary>
+
+```sh
+npm install @gjuoun/safe-ts   # Node ≥ 20.3
+bun add @gjuoun/safe-ts       # Bun
+```
+
 ```ts
 import { Errors, Runtime, Safe } from "@gjuoun/safe-ts";
 
@@ -40,44 +50,9 @@ await Runtime.run(getUser("u1"));
 - **Cancellation, scopes, `timeout`, `retry`, `all`, `race`, `forEach`** — built from
   `exec` plus a signal, a timer or a batch. No fiber, no scheduler loop.
 
-## Cancel an HTTP request
+ESM only, zero runtime dependencies, one bundle and one `.d.ts`. Runs on Node ≥ 20.3 and Bun — `npm install` or `bun add` both work.
 
-The caller passes a signal to `Runtime.run`; `Safe.call` gives its callback a
-`Scheduler` whose `s.signal` is passed to an API such as `fetch`. Cancel from
-outside with `controller.abort()`. There is no need to construct a Scheduler:
-
-```ts
-import { Runtime, Safe } from "@gjuoun/safe-ts";
-
-const getUser = Safe.call(
-  async (s) => {
-    const response = await fetch("/api/users/u1", { signal: s.signal });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.text();
-  },
-  (error) => String(error),
-);
-
-const controller = new AbortController();
-const pending = Runtime.run(getUser, { signal: controller.signal });
-controller.abort(); // e.g. in a Cancel button's click handler
-console.log((await pending)._tag); // "interrupt"
-```
-
-If a client cannot accept a signal but has `cancel()`, register it with
-`s.onCancel(() => query.cancel())`. `Scheduler` is a **type-only** public interface:
-`signal`, `onCancel`, `sleep`, `now`. See the [Scheduler and cancellation guide](./docs/en/08-scheduler.md)
-([中文](./docs/zh/08-scheduler.md)) for button handlers, database clients,
-concurrent requests, and virtual time in tests.
-
-## Install
-
-```sh
-bun add @gjuoun/safe-ts
-# or: npm i @gjuoun/safe-ts
-```
-
-ESM only, zero runtime dependencies, one bundle and one `.d.ts`. Node ≥ 20.3 (or Bun).
+</details>
 
 ## Docs
 
