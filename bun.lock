@@ -7,6 +7,7 @@
       "devDependencies": {
         "@biomejs/biome": "2.5.10",
         "@types/bun": "latest",
+        "dts-bundle-generator": "10",
         "effect": "^4.1.4",
         "neverthrow": "^8.2.0",
         "typescript": "5.9.3",
@@ -39,6 +40,10 @@
     "@types/node": ["@types/node@26.6.6", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog=="],
 
     "bun-types": ["bun-types@1.4.4", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
+
+    "commander": ["commander@15.1.0", "", {}, "sha512-cgnQ88TRrWcC7pVq46RzJVRMktu3W2RcbnoidnfBsl1bmDCBwJS/udcIZpKoCrbAYYaCqsz1yZCVIgbIaU3ddQ=="],
+
+    "dts-bundle-generator": ["dts-bundle-generator@10.0.0", "", { "dependencies": { "commander": "^15.1.0", "typescript": ">=5.4.0 <7" }, "bin": { "dts-bundle-generator": "dist/bin/dts-bundle-generator.js" } }, "sha512-1K3NXbPWfAEVPqnNFprwsomTRK4BcL3hkjh4XosuUiPKq8Hf0oVmBVHtMeS303UsooDfD3q3//K5+OmhbxRqhg=="],
 
     "effect": ["effect@4.1.4", "", {}, "sha512-Tgrv/9FN+TZYyOn8XSli+fVqAfwDrDAkiX5Uu9vztINb675VTQdhD0gWI5Kzvhlh9QqzjZvw72iugqw5pwoghQ=="],
 

@@ -58,6 +58,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.5.10",
 		"@types/bun": "latest",
+		"dts-bundle-generator": "10",
 		"effect": "^4.1.4",
 		"neverthrow": "^8.2.0",
 		"typescript": "5.9.3"
