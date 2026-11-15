@@ -106,15 +106,22 @@ export class Safe<A, E, R> {
 		}
 		const call = new Safe<Awaited<A>, E, never>((ctx) => {
 			const scheduler = new Scheduler(ctx.signal);
-			const settled = scheduler.settle(() => fn(scheduler));
+			let result: A | PromiseLike<A>;
+			try {
+				result = fn(scheduler);
+			} catch (thrown) {
+				// A throw nobody mapped is a defect, not a typed failure.
+				return scheduler.finish(
+					mapErr === undefined ? Outcome.die(thrown) : Outcome.fail(mapErr(thrown)),
+				);
+			}
+			if (!isThenable(result)) return scheduler.finish(Outcome.succeed(result as Awaited<A>));
 			// The rejection handler lives here, so this promise never rejects and
 			// `exec` can hand it straight to the run (see `sealed`).
-			return isThenable(settled)
-				? settled.then(
-						(s) => fromSettled(s, mapErr),
-						(defect) => Outcome.die(defect),
-					)
-				: fromSettled(settled, mapErr);
+			return scheduler.settlePending(result as PromiseLike<Awaited<A>>).then(
+				(s) => fromSettled(s, mapErr),
+				(defect) => Outcome.die(defect),
+			);
 		});
 		call.sealed = true;
 		return call;

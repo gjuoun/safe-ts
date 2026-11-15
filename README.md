@@ -218,11 +218,11 @@ server actually has). Bun 1.3.14, arm64, 200,000 iterations, best of 5:
 
 | scenario | safe-ts | Effect (`runSync`) | neverthrow |
 |---|---|---|---|
-| two calls, success | 282 ns/op | 374 ns/op | 362 ns/op |
-| recovered `not_found` | 350 ns/op | 409 ns/op | 427 ns/op |
-| ten `Safe.call` steps | 825 ns/op | 730 ns/op | 519 ns/op |
-| ten `Safe.ok` steps | 294 ns/op | 496 ns/op | 401 ns/op |
-| throw → typed error | 692 ns/op | 951 ns/op | 827 ns/op |
+| two calls, success | 241 ns/op | 378 ns/op | 386 ns/op |
+| recovered `not_found` | 320 ns/op | 412 ns/op | 409 ns/op |
+| ten `Safe.call` steps | 724 ns/op | 740 ns/op | 523 ns/op |
+| ten `Safe.ok` steps | 286 ns/op | 490 ns/op | 406 ns/op |
+| throw → typed error | 730 ns/op | 957 ns/op | 786 ns/op |
 
 The harness is `bun run /tmp/jun/bench6/run.ts` — seven scenarios, three
 libraries, parity asserted first (every lane prints the same result before any
