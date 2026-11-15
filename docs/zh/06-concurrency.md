@@ -140,8 +140,66 @@ const exit = await Runtime.run(program, { signal: AbortSignal.timeout(10) });
 console.log(exit._tag); // "interrupt"
 ```
 
-在回调内部，协作靠 `Scheduler`：`s.sleep(ms)` 等待 run 的 signal，`s.onCancel(fn)`
-登记该停止什么，`s.signal` 传给需要 signal 的 API，`s.now()` 读 run 的时钟。
+### Scheduler 逐个成员
+
+`Safe.call` 把 `Scheduler` 交给回调，它绑着这次运行的 signal 和时钟。你永远不构造它，
+它在 call settle 时被释放 —— 所以要在**开始干活之前**登记"该停什么"。
+
+| 成员 | 用途 |
+|---|---|
+| `s.signal` | 已经收 `AbortSignal` 的 API：`fetch`、数据库驱动、子进程 |
+| `s.onCancel(fn)` | 收不了 signal 的：定时器、socket、worker |
+| `s.sleep(ms)` | 可取消的等待；`Clocks.manual()` 下虚拟化 |
+| `s.now()` | 这次运行的时钟 —— 别用 `Date.now()`，manual clock 推不动它 |
+| `s.aborted` | 便宜的提前退出 |
+
+优先用 `s.signal`。它已经并入了你上面所有的 deadline 与取消（`timeout` 用
+`AbortSignal.any` 把自己的 controller 合进来），直接传出去就完事：
+
+```ts
+import { Safe } from "@gjuoun/safe-ts";
+
+const fetchTodo = (id: number) =>
+  Safe.call((s) => fetch(`https://example.test/todos/${id}`, { signal: s.signal }));
+```
+
+`onCancel` 是给收不了 signal 的东西用的。基于 `setTimeout` 的 promise 必须清掉定时器，
+否则被取消的 call 会留一个还在跑的 timer：
+
+```ts
+import { Safe } from "@gjuoun/safe-ts";
+
+const wait = (ms: number) =>
+  Safe.call(
+    (s) =>
+      new Promise<string>((resolve) => {
+        const timer = setTimeout(() => resolve("done"), ms);
+        s.onCancel(() => clearTimeout(timer));
+      }),
+  );
+```
+
+两个会让人意外的地方：
+
+- **取消的结果是 `interrupt`，不是 `fail`。** 传给 `Safe.call` 的 `mapErr` 永远看不到
+  `AbortError`；只有**没有被取消**的 rejection 才会变成类型化失败。
+- **一开始就 aborted 的 run 根本不会进 body**，所以 `onCancel` 不是"给从未创建的资源"
+  做清理的钩子。
+
+`sleep` 读的是 run 的时钟，这正是 deadline 可测的原因 —— manual clock 不花真实时间就
+把所有到期等待 resolve 掉：
+
+```ts
+import { Clocks, Runtime, Safe } from "@gjuoun/safe-ts";
+
+const { clock, advance } = Clocks.manual();
+const exit = Runtime.run(Safe.call((s) => s.sleep(1000).then(() => "woke")), { clock });
+advance(1000);
+console.log(await exit); // { _tag: "success", value: "woke" }
+```
+
+什么都不登记就什么都不花：不带 signal 的 `Runtime.run(safe)` 从不挂监听，同步 settle 的
+call 也不会分配监听器。
 
 `uninterruptible` 和 `interruptible` 是区域组合子 —— 组合子常量，不用加
 括号 —— 分别用于屏蔽 deadline 和把区域重新暴露给它：

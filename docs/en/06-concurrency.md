@@ -146,9 +146,70 @@ const exit = await Runtime.run(program, { signal: AbortSignal.timeout(10) });
 console.log(exit._tag); // "interrupt"
 ```
 
-Inside a callback the `Scheduler` is how you cooperate: `s.sleep(ms)` waits on
-the run's signal, `s.onCancel(fn)` registers what should stop, `s.signal` goes
-to APIs that take one, `s.now()` reads the run's clock.
+### The Scheduler, member by member
+
+`Safe.call` hands its callback a `Scheduler` bound to that run's signal and clock.
+You never construct one, and it is released when the call settles — so register
+what should stop *before* you start the work.
+
+| member | use it for |
+|---|---|
+| `s.signal` | APIs that already take an `AbortSignal`: `fetch`, a DB driver, a subprocess |
+| `s.onCancel(fn)` | what cannot take one: a timer, a socket, a worker |
+| `s.sleep(ms)` | a cancellable wait; virtual on `Clocks.manual()` |
+| `s.now()` | the run's clock — not `Date.now()`, which a manual clock cannot move |
+| `s.aborted` | a cheap early exit |
+
+Reach for `s.signal` first. It already carries every deadline and cancellation
+above you (`timeout` folds its controller in with `AbortSignal.any`), so passing
+it is the whole job:
+
+```ts
+import { Safe } from "@gjuoun/safe-ts";
+
+const fetchTodo = (id: number) =>
+  Safe.call((s) => fetch(`https://example.test/todos/${id}`, { signal: s.signal }));
+```
+
+`onCancel` is for what cannot take a signal. A promise built on `setTimeout` has
+to clear its timer, or a cancelled call leaves it running:
+
+```ts
+import { Safe } from "@gjuoun/safe-ts";
+
+const wait = (ms: number) =>
+  Safe.call(
+    (s) =>
+      new Promise<string>((resolve) => {
+        const timer = setTimeout(() => resolve("done"), ms);
+        s.onCancel(() => clearTimeout(timer));
+      }),
+  );
+```
+
+Two things surprise people:
+
+- **An abort is `interrupt`, not `fail`.** The `mapErr` you passed to `Safe.call`
+  never sees the `AbortError`; a rejection only becomes a typed failure when the
+  run was *not* cancelled.
+- **A run that starts already aborted never enters the body**, so `onCancel` is
+  not a cleanup hook for resources that were never created.
+
+`sleep` reads the run's clock, which is what makes deadlines testable — a manual
+clock resolves every due wait without real time:
+
+```ts
+import { Clocks, Runtime, Safe } from "@gjuoun/safe-ts";
+
+const { clock, advance } = Clocks.manual();
+const exit = Runtime.run(Safe.call((s) => s.sleep(1000).then(() => "woke")), { clock });
+advance(1000);
+console.log(await exit); // { _tag: "success", value: "woke" }
+```
+
+Registering nothing costs nothing: with no signal (`Runtime.run(safe)`) the
+Scheduler never attaches a listener, and a call that settles synchronously never
+allocates one.
 
 `uninterruptible` and `interruptible` are the region combinators —
 combinator constants, no parens — for masking a deadline and opting a region
