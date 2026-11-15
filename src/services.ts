@@ -152,7 +152,13 @@ export const makeLookup = (entries: readonly Entry[], ctx: Ctx, scope: Scope): L
 	): Promise<Outcome<unknown, unknown>> => {
 		if (isInstance(entry)) return Outcome.succeed(entry.instance);
 		// init runs uninterruptibly, resolving its dep lookups through this lookup.
-		const initCtx: Ctx = { ...ctx, signal: NEVER_ABORTED, lookup, path };
+		const initCtx: Ctx = {
+			...ctx,
+			signal: NEVER_ABORTED,
+			restoreSignal: ctx.signal,
+			lookup,
+			path,
+		};
 		// `init` is always a generator, so one driver runs every lifecycle body.
 		const init = new Safe((c: Ctx) => drive(entry.init(), c));
 		// exec turns a throw from init into a die.

@@ -56,3 +56,32 @@ export const all = <const T extends readonly AnySafe[]>(
 		}
 		return Promise.all(exits).then(collect);
 	});
+
+/** `allSettled`'s element tuple: one `Outcome` per input, keeping order. */
+export type AllSettledA<T extends readonly AnySafe[]> = {
+	readonly [K in keyof T]: Outcome<AllA<T>[K], T[K] extends Safe<any, infer E, any> ? E : never>;
+};
+
+/**
+ * Run every Safe and keep every Outcome, in input order — the counterpart of
+ * `Safe.all` that never fails itself. A failing sibling does not abort the
+ * rest: the caller reads `_tag` per element instead.
+ */
+export const allSettled = <const T extends readonly AnySafe[]>(
+	safes: T,
+): Safe<AllSettledA<T>, never, AllR<T>> =>
+	new Safe<AllSettledA<T>, never, AllR<T>>((ctx) => {
+		const exits = safes.map((safe) => {
+			const out = exec(safe, ctx);
+			return isThenable(out)
+				? out.then(
+						(e) => e,
+						(defect) => Outcome.die(defect),
+					)
+				: out;
+		});
+		if (exits.every((exit) => !isThenable(exit))) {
+			return Outcome.succeed(exits as unknown as AllSettledA<T>);
+		}
+		return Promise.all(exits).then((all) => Outcome.succeed(all as unknown as AllSettledA<T>));
+	});

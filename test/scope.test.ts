@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { Pipe } from "../src/index.ts";
 import { Outcome } from "../src/outcome.ts";
 import { Runtime } from "../src/runtime.ts";
 import { run, Safe } from "../src/safe.ts";
 import { get, provide } from "../src/services.ts";
 
 const resource = (name: string, log: string[]) =>
-	Safe.acquireRelease(
-		Safe.call(() => name),
-		(n) => {
+	Safe.call(() => name).pipe(
+		Pipe.acquireRelease((n: string) => {
 			log.push(n);
-		},
+		}),
 	);
 
 describe("finalizers run LIFO on fail and interrupt", () => {
@@ -43,7 +43,6 @@ describe("finalizers run LIFO on fail and interrupt", () => {
 			return yield* Safe.call(() => new Promise<never>(() => {}));
 		});
 		const exit = await run(s, { signal: AbortSignal.timeout(10) });
-		console.log("interrupt order:", JSON.stringify(log));
 		expect(exit).toEqual(Outcome.interrupt());
 		expect(log).toEqual(["b", "a"]);
 	});
@@ -64,9 +63,11 @@ describe("finalizers run LIFO on fail and interrupt", () => {
 	test("release receives the outcome", async () => {
 		const seen: string[] = [];
 		const s = Safe.try(function* () {
-			yield* Safe.acquireRelease(Safe.ok(1), (_, outcome) => {
-				seen.push(outcome._tag);
-			});
+			yield* Safe.ok(1).pipe(
+				Pipe.acquireRelease((_r: number, outcome) => {
+					seen.push(outcome._tag);
+				}),
+			);
 			return yield* Safe.err("x");
 		});
 		await run(s);
@@ -78,11 +79,13 @@ describe("scoped", () => {
 	test("closes the inner scope before the outer continues", async () => {
 		const log: string[] = [];
 		const s = Safe.try(function* () {
-			yield* Safe.scoped(resource("inner", log));
+			yield* resource("inner", log).pipe(Pipe.scoped);
 			log.push("after-scoped");
-			yield* Safe.acquireRelease(Safe.ok(undefined), () => {
-				log.push("outer");
-			});
+			yield* Safe.ok(undefined).pipe(
+				Pipe.acquireRelease(() => {
+					log.push("outer");
+				}),
+			);
 			return 0;
 		});
 		await run(s);
@@ -92,9 +95,11 @@ describe("scoped", () => {
 	test("a throwing finalizer turns success into die", async () => {
 		const defect = new Error("close failed");
 		const s = Safe.try(function* () {
-			yield* Safe.acquireRelease(Safe.ok(undefined), () => {
-				throw defect;
-			});
+			yield* Safe.ok(undefined).pipe(
+				Pipe.acquireRelease(() => {
+					throw defect;
+				}),
+			);
 			return 1;
 		});
 		expect(await run(s)).toEqual(Outcome.die(defect));
@@ -108,9 +113,11 @@ describe("scoped", () => {
 			await new Promise((r) => setTimeout(r, 5));
 			return "conn";
 		});
-		const s = Safe.acquireRelease(acquire, (c) => {
-			log.push(`released ${c}`);
-		});
+		const s = acquire.pipe(
+			Pipe.acquireRelease((c: string) => {
+				log.push(`released ${c}`);
+			}),
+		);
 		expect(await run(s, { signal: ac.signal })).toEqual(Outcome.interrupt());
 		expect(log).toEqual(["released conn"]);
 	});
@@ -141,7 +148,6 @@ describe("runtime", () => {
 			return (yield* get(Db)).query();
 		});
 		const exits = [await rt.run(q), await rt.run(q), await rt.run(q)];
-		console.log("builds:", counters.builds);
 		expect(exits).toEqual([
 			Outcome.succeed("rows"),
 			Outcome.succeed("rows"),
@@ -159,10 +165,8 @@ describe("runtime", () => {
 			return (yield* get(Db)).open;
 		});
 		expect(await rt.run(open)).toEqual(Outcome.succeed(true));
-		console.log("released before dispose:", counters.released);
 		expect(counters.released).toBe(0);
 		await rt.dispose();
-		console.log("released after dispose:", counters.released);
 		expect(counters.released).toBe(1);
 		await rt.dispose();
 		expect(counters.released).toBe(1);

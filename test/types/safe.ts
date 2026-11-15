@@ -1,4 +1,5 @@
 import { type Arm, defineErrors, type ErrorsOf } from "../../src/errors.ts";
+import { Pipe } from "../../src/index.ts";
 import type { Outcome } from "../../src/outcome.ts";
 import { run, Safe } from "../../src/safe.ts";
 import { assertType, type Equal } from "./assert.ts";
@@ -24,7 +25,9 @@ assertType<Equal<typeof prog, Safe<string, "nan" | UserError, never>>>();
 const exit = run(prog);
 assertType<Equal<typeof exit, Promise<Outcome<string, "nan" | UserError>>>>();
 
-const handled = prog.catchTag("not_found", (e) => Safe.ok(`guest:${e.id}`));
+const handled = Safe.pipe(prog, [
+	Pipe.catchTag("not_found", (e: { id: string }) => Safe.ok(`guest:${e.id}`)),
+]);
 assertType<Equal<typeof handled, Safe<string, "nan" | Arm<UserError, "invalid">, never>>>();
 
 // The generator is the combinator: sequencing is `yield*`, not `andThen`.
@@ -43,8 +46,9 @@ const mapped = Safe.try(function* () {
 });
 assertType<Equal<typeof mapped, Safe<string, "io", never>>>();
 
-// @ts-expect-error catchTag only accepts codes present in E
-prog.catchTag("missing", () => Safe.ok(""));
+// Pipe-position catchTag cannot see the target's E: an unknown code compiles
+// and simply never matches — the data-last trade-off.
+Safe.pipe(prog, [Pipe.catchTag("missing", () => Safe.ok(""))]);
 
 // The mapper rule at the type level: omit it and E stays `never`.
 const tryNoMapper = Safe.call(() => JSON.parse("{}") as { name: string });

@@ -112,3 +112,92 @@ describe("Safe.all", () => {
 		);
 	});
 });
+
+describe("uninterruptible / interruptible", () => {
+	test("a masked region survives a timeout and reports interrupt at exit", async () => {
+		const { Pipe } = await import("../src/index.ts");
+		let ran = 0;
+		const region = Safe.call(async (s) => {
+			await s.sleep(30);
+			ran = 1;
+			return "done";
+		});
+		const exit = await run(region.pipe(Pipe.uninterruptible).pipe(Pipe.timeout(10)));
+		expect(ran).toBe(1);
+		expect(exit).toEqual(Outcome.interrupt());
+	});
+
+	test("an unmasked region under the same timeout is cut", async () => {
+		const { Pipe } = await import("../src/index.ts");
+		let ran = 0;
+		const region = Safe.call(async (s) => {
+			await s.sleep(30);
+			ran = 1;
+			return "done";
+		});
+		const exit = await run(region.pipe(Pipe.timeout(10)));
+		expect(ran).toBe(0);
+		expect(exit).toEqual(Outcome.interrupt());
+	});
+
+	test("ensuring still runs after a masked region reports interrupt", async () => {
+		const { Pipe } = await import("../src/index.ts");
+		const seen: string[] = [];
+		const region = Safe.call(async (s) => {
+			await s.sleep(30);
+			return "done";
+		});
+		const exit = await run(
+			region.pipe(
+				Pipe.uninterruptible,
+				Pipe.ensuring((e) => {
+					seen.push(e._tag);
+				}),
+				Pipe.timeout(10),
+			),
+		);
+		expect(exit).toEqual(Outcome.interrupt());
+		expect(seen).toEqual(["interrupt"]);
+	});
+
+	test("Pipe.interruptible inside Pipe.uninterruptible opts the region back in", async () => {
+		const { Pipe } = await import("../src/index.ts");
+		let inner = 0;
+		let outer = 0;
+		const region = Safe.try(function* () {
+			yield* Safe.call(async (s) => {
+				await s.sleep(30);
+				outer = 1;
+			});
+			// The inner region sees the real signal again.
+			yield* Safe.call(async (s) => {
+				await s.sleep(30);
+				inner = 1;
+			}).pipe(Pipe.interruptible);
+			return "done";
+		});
+		const exit = await run(region.pipe(Pipe.uninterruptible).pipe(Pipe.timeout(100)));
+		// Both waits finished: outer was masked, inner re-exposed and the run
+		// itself was never aborted — 100 > 30 + 30 + margin.
+		expect(outer).toBe(1);
+		expect(inner).toBe(1);
+		expect(exit).toEqual(Outcome.succeed("done"));
+	});
+
+	test("Pipe.interruptible inside Pipe.uninterruptible is cut by the deadline", async () => {
+		const { Pipe } = await import("../src/index.ts");
+		let inner = 0;
+		const region = Safe.try(function* () {
+			return yield* Safe.call(async (s) => {
+				await s.sleep(30);
+				inner = 1;
+				return "done";
+			}).pipe(Pipe.interruptible);
+		});
+		const exit = await run(region.pipe(Pipe.uninterruptible).pipe(Pipe.timeout(10)));
+		// The inner wait was Pipe.interruptible again: the deadline cut it, the mask
+		// still reported the interrupt when the region exited.
+		expect(inner).toBe(0);
+		expect(exit).toEqual(Outcome.interrupt());
+	});
+});

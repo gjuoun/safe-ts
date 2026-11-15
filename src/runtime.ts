@@ -7,6 +7,7 @@
 // scope, so aborting one request never tears down shared services. The list
 // must be closed: every class an `init` gets must be in it. A failed build is
 // not cached; the next `run` retries it.
+import { Clocks } from "./clock.ts";
 import { isThenable, Outcome } from "./outcome.ts";
 import {
 	exec,
@@ -77,7 +78,14 @@ export class Runtime<ROut = never, EOut = never> {
 	#buildLookup(): Lookup {
 		return makeLookup(
 			this.#entries,
-			{ signal: this.#lifetime.signal, scope: this.#scope, lookup: rootLookup, path: [] },
+			{
+				signal: this.#lifetime.signal,
+				restoreSignal: this.#lifetime.signal,
+				scope: this.#scope,
+				clock: Clocks.real,
+				lookup: rootLookup,
+				path: [],
+			},
 			this.#scope,
 		);
 	}
@@ -88,9 +96,12 @@ export class Runtime<ROut = never, EOut = never> {
 		}
 		const runLookup = this.#runLookup();
 		const runScope = new Scope();
+		const signal = options.signal ?? NEVER_ABORTED;
 		const exit = exec(safe as Safe<A, E | EOut, never>, {
-			signal: options.signal ?? NEVER_ABORTED,
+			signal,
+			restoreSignal: signal,
 			scope: runScope,
+			clock: options.clock ?? Clocks.real,
 			lookup: runLookup,
 			path: [],
 		});

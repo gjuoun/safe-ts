@@ -8,18 +8,10 @@
 // Every child Safe executes through `exec`, the one place that catches a throw
 // from a Safe.try body or a service `init`. `Safe.call` catches its own call, so
 // a throw nobody mapped is a `die`, never a typed `fail`.
-import { type AllA, type AllE, type AllR, all } from "./all.ts";
-import {
-	ensuring,
-	type ForEachOptions,
-	forEach,
-	type RetryOptions,
-	race,
-	retry,
-	sleep,
-	timeout,
-} from "./combinators.ts";
-import type { Arm, CodeOf, Payload } from "./errors.ts";
+import { type AllA, type AllE, type AllR, type AllSettledA, all, allSettled } from "./all.ts";
+import { type Clock, Clocks } from "./clock.ts";
+import { delay, type ForEachOptions, forEach, type RaceOptions, race } from "./combinators.ts";
+import type { Arm } from "./errors.ts";
 import { isThenable, Outcome } from "./outcome.ts";
 import { NEVER_ABORTED, Scheduler } from "./scheduler.ts";
 import { Scope } from "./scope.ts";
@@ -28,8 +20,14 @@ import type { ServiceClass } from "./services.ts";
 /** Runtime context threaded through every Safe of one run. Internal. */
 export interface Ctx {
 	readonly signal: AbortSignal;
+	/** The signal to restore inside `interruptible` when `signal` is masked. */
+	readonly restoreSignal: AbortSignal;
+	/** Report the interrupt when the body settles, not when the signal fires — race({awaitLosers}). */
+	readonly deferInterrupt?: boolean;
 	/** Where finalizers registered now are attached. */
 	readonly scope: Scope;
+	/** The run's time source: every timer (`delay`, `timeout`, `retry`) reads it. */
+	readonly clock: Clock;
 	/** Resolves a class service to its instance (see services.ts). */
 	readonly lookup: Lookup;
 	/** Classes whose `init` is running, outermost first (cycle detection). */
@@ -50,6 +48,10 @@ export const rootLookup: Lookup = async (service) =>
 
 /** A signal that never fires: used where work must not be interrupted. */
 export { NEVER_ABORTED } from "./scheduler.ts";
+
+/** A `Safe → Safe` transform — what `pipe` folds and every combinator returns. */
+export type SafeOp<S extends AnySafe = AnySafe> = (safe: S) => AnySafe;
+type AnySafe = Safe<any, any, any>;
 
 export class Safe<A, E, R> {
 	readonly _tag = "Safe" as const;
@@ -124,7 +126,7 @@ export class Safe<A, E, R> {
 			);
 		}
 		const call = new Safe<Awaited<A>, E, never>((ctx) => {
-			const scheduler = new Scheduler(ctx.signal);
+			const scheduler = new Scheduler(ctx.signal, ctx.clock, ctx.deferInterrupt === true);
 			let result: A | PromiseLike<A>;
 			try {
 				result = fn(scheduler);
@@ -169,6 +171,227 @@ export class Safe<A, E, R> {
 		return sequence;
 	}
 
+	// --- The one entry for assembly ---
+
+	/**
+	 * Fold `Safe → Safe` factories over `safe`, left to right: the one place
+	 * timeout, retry, ensuring, scoped, acquireRelease, catchTag, provide,
+	 * uninterruptible and interruptible — and any combinator you write — meet a
+	 * Safe. Lazy: nothing runs until `Runtime.run`.
+	 */
+	static pipe<A, E, R>(safe: Safe<A, E, R>, ops: readonly []): Safe<A, E, R>;
+	static pipe<A, E, R, T1 extends AnySafe>(
+		safe: Safe<A, E, R>,
+		ops: readonly [(safe: Safe<A, E, R>) => T1],
+	): T1;
+	static pipe<A, E, R, T1 extends AnySafe, T2 extends AnySafe>(
+		safe: Safe<A, E, R>,
+		ops: readonly [(safe: Safe<A, E, R>) => T1, (safe: T1) => T2],
+	): T2;
+	static pipe<A, E, R, T1 extends AnySafe, T2 extends AnySafe, T3 extends AnySafe>(
+		safe: Safe<A, E, R>,
+		ops: readonly [(safe: Safe<A, E, R>) => T1, (safe: T1) => T2, (safe: T2) => T3],
+	): T3;
+	static pipe<
+		A,
+		E,
+		R,
+		T1 extends AnySafe,
+		T2 extends AnySafe,
+		T3 extends AnySafe,
+		T4 extends AnySafe,
+	>(
+		safe: Safe<A, E, R>,
+		ops: readonly [
+			(safe: Safe<A, E, R>) => T1,
+			(safe: T1) => T2,
+			(safe: T2) => T3,
+			(safe: T3) => T4,
+		],
+	): T4;
+	static pipe<
+		A,
+		E,
+		R,
+		T1 extends AnySafe,
+		T2 extends AnySafe,
+		T3 extends AnySafe,
+		T4 extends AnySafe,
+		T5 extends AnySafe,
+	>(
+		safe: Safe<A, E, R>,
+		ops: readonly [
+			(safe: Safe<A, E, R>) => T1,
+			(safe: T1) => T2,
+			(safe: T2) => T3,
+			(safe: T3) => T4,
+			(safe: T4) => T5,
+		],
+	): T5;
+	static pipe<
+		A,
+		E,
+		R,
+		T1 extends AnySafe,
+		T2 extends AnySafe,
+		T3 extends AnySafe,
+		T4 extends AnySafe,
+		T5 extends AnySafe,
+		T6 extends AnySafe,
+	>(
+		safe: Safe<A, E, R>,
+		ops: readonly [
+			(safe: Safe<A, E, R>) => T1,
+			(safe: T1) => T2,
+			(safe: T2) => T3,
+			(safe: T3) => T4,
+			(safe: T4) => T5,
+			(safe: T5) => T6,
+		],
+	): T6;
+	static pipe<
+		A,
+		E,
+		R,
+		T1 extends AnySafe,
+		T2 extends AnySafe,
+		T3 extends AnySafe,
+		T4 extends AnySafe,
+		T5 extends AnySafe,
+		T6 extends AnySafe,
+		T7 extends AnySafe,
+	>(
+		safe: Safe<A, E, R>,
+		ops: readonly [
+			(safe: Safe<A, E, R>) => T1,
+			(safe: T1) => T2,
+			(safe: T2) => T3,
+			(safe: T3) => T4,
+			(safe: T4) => T5,
+			(safe: T5) => T6,
+			(safe: T6) => T7,
+		],
+	): T7;
+	static pipe<
+		A,
+		E,
+		R,
+		T1 extends AnySafe,
+		T2 extends AnySafe,
+		T3 extends AnySafe,
+		T4 extends AnySafe,
+		T5 extends AnySafe,
+		T6 extends AnySafe,
+		T7 extends AnySafe,
+		T8 extends AnySafe,
+	>(
+		safe: Safe<A, E, R>,
+		ops: readonly [
+			(safe: Safe<A, E, R>) => T1,
+			(safe: T1) => T2,
+			(safe: T2) => T3,
+			(safe: T3) => T4,
+			(safe: T4) => T5,
+			(safe: T5) => T6,
+			(safe: T6) => T7,
+			(safe: T7) => T8,
+		],
+	): T8;
+	static pipe(safe: AnySafe, ops: readonly ((s: AnySafe) => AnySafe)[] = []): AnySafe {
+		return ops.reduce<AnySafe>((acc, op) => op(acc), safe);
+	}
+
+	/**
+	 * The variadic twin of `Safe.pipe`: `fetch.pipe(timeout(2000), retry(p))` is
+	 * `Safe.pipe(fetch, [timeout(2000), retry(p)])` — same fold, common case.
+	 */
+	pipe(): Safe<A, E, R>;
+	pipe<T1 extends AnySafe>(op1: (safe: Safe<A, E, R>) => T1): T1;
+	pipe<T1 extends AnySafe, T2 extends AnySafe>(
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+	): T2;
+	pipe<T1 extends AnySafe, T2 extends AnySafe, T3 extends AnySafe>(
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+		op3: (safe: T2) => T3,
+	): T3;
+	pipe<T1 extends AnySafe, T2 extends AnySafe, T3 extends AnySafe, T4 extends AnySafe>(
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+		op3: (safe: T2) => T3,
+		op4: (safe: T3) => T4,
+	): T4;
+	pipe<
+		T1 extends AnySafe,
+		T2 extends AnySafe,
+		T3 extends AnySafe,
+		T4 extends AnySafe,
+		T5 extends AnySafe,
+	>(
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+		op3: (safe: T2) => T3,
+		op4: (safe: T3) => T4,
+		op5: (safe: T4) => T5,
+	): T5;
+	pipe<
+		T1 extends AnySafe,
+		T2 extends AnySafe,
+		T3 extends AnySafe,
+		T4 extends AnySafe,
+		T5 extends AnySafe,
+		T6 extends AnySafe,
+	>(
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+		op3: (safe: T2) => T3,
+		op4: (safe: T3) => T4,
+		op5: (safe: T4) => T5,
+		op6: (safe: T5) => T6,
+	): T6;
+	pipe<
+		T1 extends AnySafe,
+		T2 extends AnySafe,
+		T3 extends AnySafe,
+		T4 extends AnySafe,
+		T5 extends AnySafe,
+		T6 extends AnySafe,
+		T7 extends AnySafe,
+	>(
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+		op3: (safe: T2) => T3,
+		op4: (safe: T3) => T4,
+		op5: (safe: T4) => T5,
+		op6: (safe: T5) => T6,
+		op7: (safe: T6) => T7,
+	): T7;
+	pipe<
+		T1 extends AnySafe,
+		T2 extends AnySafe,
+		T3 extends AnySafe,
+		T4 extends AnySafe,
+		T5 extends AnySafe,
+		T6 extends AnySafe,
+		T7 extends AnySafe,
+		T8 extends AnySafe,
+	>(
+		op1: (safe: Safe<A, E, R>) => T1,
+		op2: (safe: T1) => T2,
+		op3: (safe: T2) => T3,
+		op4: (safe: T3) => T4,
+		op5: (safe: T4) => T5,
+		op6: (safe: T5) => T6,
+		op7: (safe: T6) => T7,
+		op8: (safe: T7) => T8,
+	): T8;
+	pipe(...ops: ((s: AnySafe) => AnySafe)[]): AnySafe {
+		return ops.reduce<AnySafe>((acc, op) => op(acc), this);
+	}
+
+	// --- Fan-out constructors (they take arrays, not a Safe to wrap) ---
+
 	/**
 	 * Run Safes concurrently, keeping order. The first fail or die aborts the
 	 * rest and becomes the result.
@@ -180,63 +403,30 @@ export class Safe<A, E, R> {
 	}
 
 	/**
-	 * Acquire a resource and register its release on the current scope. The
-	 * acquire step is not interruptible, so an acquired resource is always
-	 * released. `release` gets the scope's outcome.
+	 * Run Safes concurrently, keeping order, and return every Outcome — the
+	 * per-input result with failures visible instead of the first non-success.
+	 * It never fails itself: its `E` is `never`.
 	 */
-	static acquireRelease<A, E, R>(
-		acquire: Safe<A, E, R>,
-		release: (resource: A, exit: Outcome<unknown, unknown>) => void | PromiseLike<void>,
-	): Safe<A, E, R> {
-		return new Safe<A, E, R>((ctx) => {
-			const exit = exec(acquire, { ...ctx, signal: NEVER_ABORTED });
-			return isThenable(exit)
-				? exit.then((e) => afterAcquire(e, ctx, release))
-				: afterAcquire(exit, ctx, release);
-		});
-	}
-
-	/** Bound a Safe to `ms`; a timeout is an `interrupt` unless `onTimeout` maps it. */
-	static timeout<A, E, R>(safe: Safe<A, E, R>, ms: number): Safe<A, E, R>;
-	static timeout<A, E, R, E2>(
-		safe: Safe<A, E, R>,
-		ms: number,
-		onTimeout: () => E2,
-	): Safe<A, E | E2, R>;
-	static timeout<A, E, R, E2>(
-		safe: Safe<A, E, R>,
-		ms: number,
-		onTimeout?: () => E2,
-	): Safe<A, E | E2, R> {
-		return timeout(safe, ms, onTimeout);
-	}
-
-	/** Wait `ms`; an abort during the wait is an interrupt. */
-	static sleep(ms: number): Safe<void, never, never> {
-		return sleep(ms);
+	static allSettled<const T extends readonly Safe<any, any, any>[]>(
+		safes: T,
+	): Safe<AllSettledA<T>, never, AllR<T>> {
+		return allSettled(safes);
 	}
 
 	/** Keep the first Safe to settle; the losers are aborted. */
 	static race<const T extends readonly Safe<any, any, any>[]>(
 		safes: T,
+		options?: RaceOptions,
 	): Safe<AllA<T>[number], AllE<T>, AllR<T>> {
-		return race(safes);
+		return race(safes, options);
 	}
 
-	/** Run `safe`, then always run `cleanup` with its outcome. */
-	static ensuring<A, E, R>(
-		safe: Safe<A, E, R>,
-		cleanup: (exit: Outcome<A, E>) => void | PromiseLike<void>,
-	): Safe<A, E, R> {
-		return ensuring(safe, cleanup);
+	/** Wait `ms`; an abort during the wait is an interrupt. */
+	static delay(ms: number): Safe<void, never, never> {
+		return delay(ms);
 	}
 
-	/** Re-run on a typed failure; a defect or an interrupt is never retried. */
-	static retry<A, E, R>(safe: Safe<A, E, R>, options: RetryOptions): Safe<A, E, R> {
-		return retry(safe, options);
-	}
-
-	/** Run one Safe per item, in order, optionally in batches of `concurrency`. */
+	/** Run one Safe per item, in order, with a sliding `concurrency` window. */
 	static forEach<A, B, E, R>(
 		items: readonly A[],
 		f: (item: A, index: number) => Safe<B, E, R>,
@@ -244,42 +434,34 @@ export class Safe<A, E, R> {
 	): Safe<readonly B[], E, R> {
 		return forEach(items, f, options);
 	}
+}
 
-	/** Run in a fresh scope; its finalizers run (LIFO) as soon as it exits. */
-	static scoped<A, E, R>(safe: Safe<A, E, R>): Safe<A, E, R> {
-		return new Safe<A, E, R>((ctx) => {
-			const scope = new Scope();
-			const exit = exec(safe, { ...ctx, scope });
-			return isThenable(exit) ? exit.then((e) => scope.close(e)) : scope.close(exit);
-		});
-	}
+// --- catchTag, a combinator like the rest ---
 
-	// --- Combinators ---
-
-	/**
-	 * Recover from one typed error variant by its key. The handler gets the
-	 * factory's payload; defects pass through.
-	 */
-	catchTag<const K extends CodeOf<E>, B, E2 = never, R2 = never>(
-		code: K,
-		f: (payload: Payload<E, K>) => Safe<B, E2, R2>,
-	): Safe<A | B, Exclude<E, Arm<E, K>> | E2, R | R2> {
-		return new Safe<A | B, Exclude<E, Arm<E, K>> | E2, R | R2>((ctx) => {
-			const exit = exec(this, ctx);
-			if (!isThenable(exit)) {
+/**
+ * Recover from one typed error variant by its key. A `Safe → Safe` factory for
+ * `pipe`: `Safe.pipe(find("u2"), [catchTag("not_found", h)])`. The handler gets
+ * the factory's payload (annotate it); defects pass through. A code the target
+ * cannot produce compiles but never matches — pipe-position inference cannot
+ * see the target's E, the data-last cost Effect's `catchTag` shares.
+ */
+export function catchTag<const K extends string, B, E2 = never, R2 = never>(
+	code: K,
+	f: (payload: any) => Safe<B, E2, R2>,
+) {
+	return <A, E, R>(safe: Safe<A, E, R>): Safe<A | B, Exclude<E, Arm<E, K>> | E2, R | R2> =>
+		new Safe<A | B, Exclude<E, Arm<E, K>> | E2, R | R2>((ctx) => {
+			const recover = (exit: Outcome<A, E>) => {
 				if (exit._tag === "fail" && hasTag(exit.error, code)) {
-					return exec(f(payloadOf(exit.error, code) as Payload<E, K>), ctx);
+					return exec(f(payloadOf(exit.error, code)), ctx);
 				}
-				return exit as Outcome<A, Exclude<E, Arm<E, K>>>;
-			}
-			return exit.then((e) => {
-				if (e._tag === "fail" && hasTag(e.error, code)) {
-					return exec(f(payloadOf(e.error, code) as Payload<E, K>), ctx);
-				}
-				return e as Outcome<A, Exclude<E, Arm<E, K>>>;
-			});
+				return exit as Outcome<A | B, Exclude<E, Arm<E, K>> | E2>;
+			};
+			const exit = exec(safe, ctx);
+			return isThenable(exit)
+				? exit.then(recover)
+				: (recover(exit) as Outcome<A | B, Exclude<E, Arm<E, K>> | E2>);
 		});
-	}
 }
 
 // --- Execution ---
@@ -377,11 +559,11 @@ const isGeneratorFunction = (fn: unknown): boolean => {
 };
 
 /** A catalog error is a one-key record: the tag is the key, not a field. */
-const hasTag = (e: unknown, code: string): boolean =>
+export const hasTag = (e: unknown, code: string): boolean =>
 	typeof e === "object" && e !== null && code in e;
 
 /** The arm's value: what the factory returned. */
-const payloadOf = (e: unknown, code: string): unknown =>
+export const payloadOf = (e: unknown, code: string): unknown =>
 	typeof e === "object" && e !== null ? (e as Record<string, unknown>)[code] : undefined;
 
 /**
@@ -430,20 +612,11 @@ const fromSettled = <A, E>(
 	}
 };
 
-/** Register the release once the resource exists; nothing runs on failure. */
-const afterAcquire = <A, E>(
-	exit: Outcome<A, E>,
-	ctx: Ctx,
-	release: (resource: A, exit: Outcome<unknown, unknown>) => void | PromiseLike<void>,
-): Outcome<A, E> => {
-	if (exit._tag !== "success") return exit;
-	ctx.scope.add((scopeOutcome) => release(exit.value, scopeOutcome));
-	return ctx.signal.aborted ? Outcome.interrupt() : exit;
-};
-
 export interface RunOptions {
 	/** Aborting this signal interrupts the run. */
 	readonly signal?: AbortSignal;
+	/** The run's time source; `Clocks.manual()` makes every timer testable. */
+	readonly clock?: Clock;
 }
 
 /**
@@ -455,11 +628,14 @@ export const run = async <A, E>(
 	options: RunOptions = {},
 ): Promise<Outcome<A, E>> => {
 	const root = new Scope();
+	const signal = options.signal ?? NEVER_ABORTED;
 	// No signal given: a shared, never-aborted one. A fresh AbortController per
 	// run costs ~134 ns and is indistinguishable from this (nothing can abort it).
 	const exit = exec(safe, {
-		signal: options.signal ?? NEVER_ABORTED,
+		signal,
+		restoreSignal: signal,
 		scope: root,
+		clock: options.clock ?? Clocks.real,
 		lookup: rootLookup,
 		path: [],
 	});

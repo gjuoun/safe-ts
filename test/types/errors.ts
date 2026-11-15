@@ -5,6 +5,7 @@ import {
 	type ErrorsOf,
 	type Payload,
 } from "../../src/errors.ts";
+import { Pipe } from "../../src/index.ts";
 import { Safe } from "../../src/safe.ts";
 import { assertType, type Equal } from "./assert.ts";
 
@@ -35,15 +36,16 @@ assertType<
 >();
 
 declare const read: Safe<string, FsError, never>;
-const recovered = read.catchTag("not_found", (e) => {
-	// The handler's argument is the factory's return type, not the arm.
-	assertType<Equal<typeof e, { message: string; path: string }>>();
-	return Safe.ok(`default for ${e.path}`);
-});
+const recovered = Safe.pipe(read, [
+	Pipe.catchTag("not_found", (e: { message: string; path: string }) => {
+		// The handler's argument is the factory's return type, not the arm.
+		return Safe.ok(`default for ${e.path}`);
+	}),
+]);
 assertType<Equal<typeof recovered, Safe<string, Arm<FsError, "denied">, never>>>();
 
-const remapped = read.catchTag("denied", () => Safe.err("fatal" as const));
+const remapped = Safe.pipe(read, [Pipe.catchTag("denied", () => Safe.err("fatal" as const))]);
 assertType<Equal<typeof remapped, Safe<string, Arm<FsError, "not_found"> | "fatal", never>>>();
 
-// @ts-expect-error unknown code is rejected
-read.catchTag("nope", () => Safe.ok(1));
+// An unknown code compiles in pipe position and never matches.
+Safe.pipe(read, [Pipe.catchTag("nope", () => Safe.ok(1))]);

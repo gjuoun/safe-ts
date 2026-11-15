@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defineErrors } from "../src/errors.ts";
+import { Pipe } from "../src/index.ts";
 import { Outcome } from "../src/outcome.ts";
 import { run, Safe } from "../src/safe.ts";
 
@@ -138,15 +139,20 @@ describe("Safe combinators", () => {
 	test("catchTag recovers one code and keeps the rest", async () => {
 		const find = (id: string): Safe<string, ReturnType<typeof userError.not_found>, never> =>
 			id === "u1" ? Safe.ok("ada") : Safe.err(userError.not_found(id));
-		const recovered = find("u2").catchTag("not_found", (e) => Safe.ok(`guest:${e.id}`));
+		const recovered = Safe.pipe(find("u2"), [
+			Pipe.catchTag("not_found", (e: { id: string }) => Safe.ok(`guest:${e.id}`)),
+		]);
 		expect(await run(recovered)).toEqual(Outcome.succeed("guest:u2"));
 	});
 
 	test("catchTag leaves die alone", async () => {
 		const defect = new Error("bug");
-		const s = Safe.call((): string => {
-			throw defect;
-		}).catchTag("not_found" as never, () => Safe.ok("x"));
+		const s = Safe.pipe(
+			Safe.call((): string => {
+				throw defect;
+			}),
+			[Pipe.catchTag("not_found", () => Safe.ok("x"))],
+		);
 		expect(await run(s)).toEqual(Outcome.die(defect));
 	});
 });

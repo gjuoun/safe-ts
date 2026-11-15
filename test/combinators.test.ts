@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { Pipe } from "../src/index.ts";
 import { Outcome } from "../src/outcome.ts";
+import { Policy } from "../src/policy.ts";
 import { run, Safe } from "../src/safe.ts";
 
 const slow = (ms: number) =>
@@ -8,39 +10,39 @@ const slow = (ms: number) =>
 		return ms;
 	});
 
-describe("Safe.timeout", () => {
+describe("timeout", () => {
 	test("a timeout arrives as interrupt", async () => {
-		expect(await run(Safe.timeout(slow(50), 5))).toEqual(Outcome.interrupt());
+		expect(await run(slow(50).pipe(Pipe.timeout(5)))).toEqual(Outcome.interrupt());
 	});
 
 	test("onTimeout turns it into a typed failure", async () => {
-		expect(await run(Safe.timeout(slow(50), 5, () => "too_slow" as const))).toEqual(
+		expect(await run(slow(50).pipe(Pipe.timeout(5, () => "too_slow" as const)))).toEqual(
 			Outcome.fail("too_slow"),
 		);
 	});
 
 	test("a fast body is untouched", async () => {
-		expect(await run(Safe.timeout(Safe.ok(1), 50))).toEqual(Outcome.succeed(1));
+		expect(await run(Safe.ok(1).pipe(Pipe.timeout(50)))).toEqual(Outcome.succeed(1));
 	});
 
 	test("a body that fails before the deadline keeps its error", async () => {
-		expect(await run(Safe.timeout(Safe.err("boom"), 50, () => "too_slow"))).toEqual(
+		expect(await run(Safe.err("boom").pipe(Pipe.timeout(50, () => "too_slow")))).toEqual(
 			Outcome.fail("boom"),
 		);
 	});
 });
 
-describe("Safe.sleep", () => {
+describe("Safe.delay", () => {
 	test("waits and succeeds with undefined", async () => {
-		expect(await run(Safe.sleep(1))).toEqual(Outcome.succeed(undefined));
+		expect(await run(Safe.delay(1))).toEqual(Outcome.succeed(undefined));
 	});
 
 	test("a zero wait takes the sync path", async () => {
-		expect(await run(Safe.sleep(0))).toEqual(Outcome.succeed(undefined));
+		expect(await run(Safe.delay(0))).toEqual(Outcome.succeed(undefined));
 	});
 
 	test("an abort during the wait is an interrupt", async () => {
-		expect(await run(Safe.sleep(50), { signal: AbortSignal.timeout(5) })).toEqual(
+		expect(await run(Safe.delay(50), { signal: AbortSignal.timeout(5) })).toEqual(
 			Outcome.interrupt(),
 		);
 	});
@@ -83,20 +85,55 @@ describe("Safe.race", () => {
 		const exit = await run(Safe.race([] as Safe<number, never, never>[]));
 		expect(exit._tag).toBe("die");
 	});
+
+	test("awaitLosers returns only after the loser settles", async () => {
+		const log: string[] = [];
+		const loser = Safe.call(async () => {
+			// Ignores the run's signal on purpose: it settles, not interrupts.
+			await new Promise((r) => setTimeout(r, 30));
+			log.push("loser-settled");
+			return "loser";
+		});
+		const winner = Safe.call(() => {
+			log.push("winner");
+			return "winner";
+		});
+		const exit = await run(Safe.race([loser, winner], { awaitLosers: true }));
+		log.push("returned");
+		expect(exit).toEqual(Outcome.succeed("winner"));
+		expect(log).toEqual(["winner", "loser-settled", "returned"]);
+	});
+
+	test("the default abandons the loser", async () => {
+		const log: string[] = [];
+		const loser = Safe.call(async (s) => {
+			await s.sleep(30);
+			log.push("loser-settled");
+			return "loser";
+		});
+		const exit = await run(Safe.race([loser, Safe.ok("winner")]));
+		log.push("returned");
+		expect(exit).toEqual(Outcome.succeed("winner"));
+		expect(log).toEqual(["returned"]);
+	});
 });
 
-describe("Safe.ensuring", () => {
+describe("ensuring", () => {
 	test("runs cleanup on success and on failure", async () => {
 		const seen: string[] = [];
 		await run(
-			Safe.ensuring(Safe.ok(1), (exit) => {
-				seen.push(exit._tag);
-			}),
+			Safe.ok(1).pipe(
+				Pipe.ensuring((exit) => {
+					seen.push(exit._tag);
+				}),
+			),
 		);
 		await run(
-			Safe.ensuring(Safe.err("x" as const), (exit) => {
-				seen.push(exit._tag);
-			}),
+			Safe.err("x" as const).pipe(
+				Pipe.ensuring((exit) => {
+					seen.push(exit._tag);
+				}),
+			),
 		);
 		expect(seen).toEqual(["success", "fail"]);
 	});
@@ -104,18 +141,22 @@ describe("Safe.ensuring", () => {
 	test("a throwing cleanup turns a success into a defect", async () => {
 		const defect = new Error("cleanup blew up");
 		const exit = await run(
-			Safe.ensuring(Safe.ok(1), () => {
-				throw defect;
-			}),
+			Safe.ok(1).pipe(
+				Pipe.ensuring(() => {
+					throw defect;
+				}),
+			),
 		);
 		expect(exit).toEqual(Outcome.die(defect));
 	});
 
 	test("a throwing cleanup leaves a failure alone", async () => {
 		const exit = await run(
-			Safe.ensuring(Safe.err("x" as const), () => {
-				throw new Error("cleanup blew up");
-			}),
+			Safe.err("x" as const).pipe(
+				Pipe.ensuring(() => {
+					throw new Error("cleanup blew up");
+				}),
+			),
 		);
 		expect(exit).toEqual(Outcome.fail("x"));
 	});
@@ -123,17 +164,19 @@ describe("Safe.ensuring", () => {
 	test("an async cleanup is awaited before the outcome is returned", async () => {
 		let done = false;
 		const exit = await run(
-			Safe.ensuring(Safe.ok(1), async () => {
-				await Promise.resolve();
-				done = true;
-			}),
+			Safe.ok(1).pipe(
+				Pipe.ensuring(async () => {
+					await Promise.resolve();
+					done = true;
+				}),
+			),
 		);
 		expect(exit).toEqual(Outcome.succeed(1));
 		expect(done).toBe(true);
 	});
 });
 
-describe("Safe.retry", () => {
+describe("retry", () => {
 	test("retries a typed failure until it succeeds", async () => {
 		let attempts = 0;
 		const flaky = Safe.call(
@@ -144,7 +187,7 @@ describe("Safe.retry", () => {
 			},
 			() => "unavailable" as const,
 		);
-		expect(await run(Safe.retry(flaky, { attempts: 3 }))).toEqual(Outcome.succeed(3));
+		expect(await run(flaky.pipe(Pipe.retry({ attempts: 3 })))).toEqual(Outcome.succeed(3));
 		expect(attempts).toBe(3);
 	});
 
@@ -157,8 +200,29 @@ describe("Safe.retry", () => {
 			},
 			() => "unavailable" as const,
 		);
-		expect(await run(Safe.retry(always, { attempts: 2 }))).toEqual(Outcome.fail("unavailable"));
+		expect(await run(always.pipe(Pipe.retry({ attempts: 2 })))).toEqual(
+			Outcome.fail("unavailable"),
+		);
 		expect(attempts).toBe(2);
+	});
+
+	test("a policy value drives the same loop", async () => {
+		let attempts = 0;
+		const always = Safe.call(
+			() => {
+				attempts++;
+				throw new Error("no");
+			},
+			() => "unavailable" as const,
+		);
+		expect(
+			await run(
+				always.pipe(
+					Pipe.retry(Policy.pipe(Policy.spaced(1), [Policy.while((s) => s.attempt < 4)])),
+				),
+			),
+		).toEqual(Outcome.fail("unavailable"));
+		expect(attempts).toBe(4);
 	});
 
 	test("never retries a defect", async () => {
@@ -167,7 +231,7 @@ describe("Safe.retry", () => {
 			attempts++;
 			throw new Error("bug");
 		});
-		const exit = await run(Safe.retry(broken, { attempts: 3 }));
+		const exit = await run(broken.pipe(Pipe.retry({ attempts: 3 })));
 		expect(exit._tag).toBe("die");
 		expect(attempts).toBe(1);
 	});
@@ -176,13 +240,15 @@ describe("Safe.retry", () => {
 		let released = 0;
 		let attempts = 0;
 		const withResource = Safe.try(function* () {
-			yield* Safe.acquireRelease(Safe.ok("conn"), () => {
-				released++;
-			});
+			yield* Safe.ok("conn").pipe(
+				Pipe.acquireRelease(() => {
+					released++;
+				}),
+			);
 			attempts++;
 			return yield* Safe.err("down" as const);
 		});
-		expect(await run(Safe.retry(withResource, { attempts: 3 }))).toEqual(Outcome.fail("down"));
+		expect(await run(withResource.pipe(Pipe.retry({ attempts: 3 })))).toEqual(Outcome.fail("down"));
 		expect(attempts).toBe(3);
 		expect(released).toBe(3);
 	});
@@ -197,7 +263,7 @@ describe("Safe.retry", () => {
 			() => "unavailable" as const,
 		);
 		const started = Date.now();
-		await run(Safe.retry(always, { attempts: 3, delayMs: 10 }));
+		await run(always.pipe(Pipe.retry({ attempts: 3, delayMs: 10 })));
 		expect(attempts).toBe(3);
 		expect(Date.now() - started).toBeGreaterThanOrEqual(20);
 	});
@@ -225,9 +291,19 @@ describe("Safe.forEach", () => {
 		expect(peak).toBeLessThanOrEqual(2);
 	});
 
-	test("a failure stops the remaining batches", async () => {
-		// One at a time: without a limit every child starts at once (Safe.all), so
-		// only a batch boundary can keep later work from running at all.
+	test("the window slides: a slow item does not hold back the batch behind it", async () => {
+		// [10, 200] pairs at k=2: three waves of ~200 ms if batched (~600 ms),
+		// ~400+ if the window slides — a fast item frees its lane immediately.
+		const work = (n: number) => Safe.call((s) => s.sleep(n).then(() => n));
+		const started = Date.now();
+		const exit = await run(Safe.forEach([10, 200, 10, 200, 10, 200], work, { concurrency: 2 }));
+		expect(exit).toEqual(Outcome.succeed([10, 200, 10, 200, 10, 200]));
+		const elapsed = Date.now() - started;
+		expect(elapsed).toBeGreaterThanOrEqual(200);
+		expect(elapsed).toBeLessThan(550);
+	});
+
+	test("a failure stops the remaining items", async () => {
 		const seen: number[] = [];
 		const exit = await run(
 			Safe.forEach(
@@ -241,5 +317,82 @@ describe("Safe.forEach", () => {
 		);
 		expect(exit).toEqual(Outcome.fail("stop"));
 		expect(seen).toEqual([1, 2]);
+	});
+});
+
+describe("Safe.allSettled", () => {
+	test("keeps every outcome, in order", async () => {
+		const exit = await run(
+			Safe.allSettled([Safe.err("a" as const), Safe.ok(1), Safe.err("b" as const)]),
+		);
+		expect(exit).toEqual(
+			Outcome.succeed([Outcome.fail("a"), Outcome.succeed(1), Outcome.fail("b")]),
+		);
+	});
+
+	test("a failing sibling does not abort the rest", async () => {
+		const late = Safe.call(async (s) => {
+			await s.sleep(20);
+			return "late";
+		});
+		const exit = await run(Safe.allSettled([Safe.err("no" as const), late]));
+		expect(exit).toEqual(Outcome.succeed([Outcome.fail("no"), Outcome.succeed("late")]));
+	});
+});
+
+describe("Safe.pipe", () => {
+	test("folds factories left to right", async () => {
+		// timeout bounds the whole retry loop: one attempt, then interrupt.
+		let attempts = 0;
+		const always = Safe.call(
+			() => {
+				attempts++;
+				throw new Error("no");
+			},
+			() => "unavailable" as const,
+		);
+		const piped = always.pipe(Pipe.retry({ attempts: 5, delayMs: 30 }), Pipe.timeout(10));
+		const exit = await run(piped);
+		expect(exit).toEqual(Outcome.interrupt());
+		expect(attempts).toBe(1);
+	});
+
+	test("the variadic twin is the same fold", async () => {
+		const exit = await run(
+			Safe.err("boom" as const).pipe(Pipe.timeout(50, () => "too_slow" as const)),
+		);
+		expect(exit).toEqual(Outcome.fail("boom"));
+	});
+
+	test("a user-defined combinator joins the list", async () => {
+		const seen: string[] = [];
+		const tag = (name: string) => (safe: Safe<number, never, never>) =>
+			safe.pipe(
+				Pipe.ensuring(() => {
+					seen.push(name);
+				}),
+			);
+		const exit = await run(Safe.pipe(Safe.ok(1), [tag("first"), tag("second")]));
+		expect(exit).toEqual(Outcome.succeed(1));
+		// Ensuring order follows wrap order: second's cleanup runs first.
+		expect(seen).toEqual(["first", "second"]);
+	});
+});
+
+describe("scoped", () => {
+	test("a Pipe.scoped region closes before the outer scope", async () => {
+		const log: string[] = [];
+		const s = Safe.try(function* () {
+			yield* Safe.ok(undefined).pipe(
+				Pipe.acquireRelease(() => {
+					log.push("inner");
+				}),
+				Pipe.scoped,
+			);
+			log.push("after");
+			return 0;
+		});
+		await run(s);
+		expect(log).toEqual(["inner", "after"]);
 	});
 });

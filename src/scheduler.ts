@@ -7,7 +7,8 @@
 // dropped when the call settles. Hand-wiring `signal.addEventListener` instead
 // leaks a listener per call: `{ once: true }` only fires on abort, so a call
 // that resolves normally never removes it (measured: 100 listeners / 100 runs).
-import { isThenable, Outcome } from "./outcome.ts";
+import { type Clock, Clocks } from "./clock.ts";
+import { Outcome } from "./outcome.ts";
 
 /**
  * The signal a run gets when nobody passed one: nothing can ever abort it, so a
@@ -31,8 +32,18 @@ export class Scheduler {
 	/** Bound lazily: only a call that actually listens needs a closure. */
 	#bound: (() => void) | undefined;
 
+	readonly #clock: Clock;
+	readonly #deferInterrupt: boolean;
+
 	/** `signal` is the run's own signal: pass it to APIs that take one. */
-	constructor(readonly signal: AbortSignal) {}
+	constructor(
+		readonly signal: AbortSignal,
+		clock: Clock = Clocks.real,
+		deferInterrupt = false,
+	) {
+		this.#clock = clock;
+		this.#deferInterrupt = deferInterrupt;
+	}
 
 	get aborted(): boolean {
 		return this.signal.aborted;
@@ -65,8 +76,15 @@ export class Scheduler {
 		};
 	}
 
+	/** The run's clock: same `now` every timer in the run reads. */
+	now(): number {
+		return this.#clock.now();
+	}
+
 	/** Resolve after `ms`, or reject with the signal's reason when cancelled. */
 	sleep(ms: number): Promise<void> {
+		// Off the real clock a manual one virtualises the wait entirely.
+		if (this.#clock !== Clocks.real) return this.#clock.sleep(ms, this.signal);
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {
 				dispose();
@@ -141,11 +159,21 @@ export class Scheduler {
 				settled = true;
 				resolve(this.#settleWith(map, outcome));
 			};
-			this.#onAbort = (cancelled) =>
-				finish(cancelled.failed ? Outcome.die(cancelled.defect) : Outcome.interrupt());
+			this.#onAbort = (cancelled) => {
+				// A throwing cancel callback is a defect now, never deferred.
+				if (cancelled.failed) return finish(Outcome.die(cancelled.defect));
+				// Deferred: the interrupt lands when the body settles, so a loser
+				// racing with awaitLosers is awaited for real.
+				if (!this.#deferInterrupt) finish(Outcome.interrupt());
+			};
 			this.#listen();
 			pending.then(
-				(value) => finish(Outcome.succeed(value)),
+				(value) =>
+					finish(
+						this.signal.aborted && this.#deferInterrupt
+							? Outcome.interrupt()
+							: Outcome.succeed(value),
+					),
 				(error) => finish(this.signal.aborted ? Outcome.interrupt() : Outcome.fail(error)),
 			);
 		});

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defineErrors, type ErrorsOf, renderError } from "../src/errors.ts";
+import { Pipe } from "../src/index.ts";
 import { Outcome } from "../src/outcome.ts";
 import { run, Safe } from "../src/safe.ts";
 
@@ -56,22 +57,28 @@ describe("catchTag", () => {
 				: Safe.err(fsError.denied(path, "EACCES"));
 
 	test("handles the matching key", async () => {
-		const recovered = read("/missing").catchTag("not_found", (e) => Safe.ok(`default:${e.path}`));
+		const recovered = Safe.pipe(read("/missing"), [
+			Pipe.catchTag("not_found", (e: { path: string }) => Safe.ok(`default:${e.path}`)),
+		]);
 		expect(await run(recovered)).toEqual(Outcome.succeed("default:/missing"));
 	});
 
 	test("passes other variants through", async () => {
-		const exit = await run(read("/secret").catchTag("not_found", () => Safe.ok("x")));
-		expect(Outcome.isFail(exit) && "denied" in exit.error).toBe(true);
+		const exit = await run(
+			Safe.pipe(read("/secret"), [Pipe.catchTag("not_found", () => Safe.ok("x"))]),
+		);
+		expect(exit).toEqual(Outcome.fail(fsError.denied("/secret", "EACCES")));
 	});
 
 	test("passes a success through without calling the handler", async () => {
 		let calls = 0;
 		const exit = await run(
-			read("/ok").catchTag("not_found", () => {
-				calls++;
-				return Safe.ok("x");
-			}),
+			Safe.pipe(read("/ok"), [
+				Pipe.catchTag("not_found", () => {
+					calls++;
+					return Safe.ok("x");
+				}),
+			]),
 		);
 		expect(exit).toEqual(Outcome.succeed("data"));
 		expect(calls).toBe(0);
