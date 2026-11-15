@@ -1,68 +1,110 @@
-// examples/05-concurrency-and-cleanup.ts — `Safe.all`, interruption, finalizers.
+// examples/05-concurrency-and-cleanup.ts — pipes, policies, cleanup.
 //
-// `Safe.all` runs Safes concurrently and keeps result order; the first fail or
-// die aborts the rest. There is no `timeout` operator — `AbortSignal.timeout`
-// passed to `run` bounds any wait, because `Scheduler.sleep` waits on the run's
-// signal and stops on abort even if nothing else in the callback cooperates.
-// `Safe.acquireRelease` and `Safe.scoped` register cleanup that runs last-in,
-// first-out on every exit: success, fail, die and interrupt.
+// One doc-fetch service assembled the way the library intends: the work is a
+// `Safe.try` generator, and everything that wraps it — a retry policy, a
+// deadline, a per-request scope — is a `Pipe.*` op in one list. The retry
+// policy is itself a value assembled in `Policy.*`. No statics, no second
+// spelling: `Safe.pipe` folds `Safe → Safe`, `Policy.pipe` folds `Policy →
+// Policy`, and cleanup (`acquireRelease`, `ensuring`, `scoped`) runs LIFO on
+// every exit — success, fail, die and interrupt.
 //
 //   bun run examples/05-concurrency-and-cleanup.ts
-import { type Outcome, Runtime, Safe } from "../src/index.ts";
+import { type Outcome, Pipe, Policy, Runtime, Safe } from "../src/index.ts";
 
-// The scheduler waits on the run's signal; a rejection caused by an abort is an
-// interrupt, not a typed fail.
-const fetchDoc = (id: string, ms: number) =>
+// A flaky store: two failures, then it answers. A typed failure, not a throw —
+// so `Pipe.retry` can see it and a `Policy` can decide what to do about it.
+const store = new Map([
+	["a", "doc:a"],
+	["b", "doc:b"],
+	["flaky", "doc:flaky"],
+]);
+let calls = 0;
+const fetchDoc = (id: string) =>
 	Safe.call(
 		async (s) => {
-			console.log(`start ${id}`);
-			await s.sleep(ms);
-			return `doc:${id}`;
+			calls += 1;
+			await s.sleep(20);
+			const doc = store.get(id);
+			// The store drops the first two calls for "flaky" — a typed failure.
+			if (doc === undefined || (id === "flaky" && calls < 3)) throw new Error(`no ${id}`);
+			return doc;
 		},
-		(): `fetch_failed:${string}` => `fetch_failed:${id}`,
+		() => `fetch_failed:${id}` as const,
 	);
+
+// --- The policy is a value ---
+// Exponential backoff at 10 ms, jittered ±20%, and a hard stop after 4
+// attempts — the three needs of a real retry composed in one `Policy.pipe`.
+const jitter = (d: number) => d * 0.8 + Math.random() * 0.4 * d;
+const flakyPolicy = Policy.pipe(Policy.exponential(10), [
+	Policy.modifyDelay(jitter),
+	Policy.while((s) => s.attempt <= 4),
+]);
+
+// --- The wrapper ops are a list ---
+// `Pipe.retry` consumes the policy; `Pipe.timeout` bounds the *whole* loop.
+// Swap the order and the timeout would bound each attempt instead.
+const fetchFlaky = (id: string) => fetchDoc(id).pipe(Pipe.retry(flakyPolicy), Pipe.timeout(1_000));
 
 // A resource that always reports when it is released — and why.
 const open = (name: string) =>
-	Safe.acquireRelease(
-		Safe.call(() => {
-			console.log(`open ${name}`);
-			return name;
-		}),
-		(_resource, exit) => console.log(`close ${name} (${exit._tag})`),
-	);
+	Safe.call(() => {
+		console.log(`open ${name}`);
+		return name;
+	}).pipe(Pipe.acquireRelease((_r: string, exit) => console.log(`close ${name} (${exit._tag})`)));
 
 const show = <A, E>(exit: Outcome<A, E>): string => {
 	if (exit._tag === "success") return `ok: ${JSON.stringify(exit.value)}`;
 	return exit._tag === "fail" ? `fail: ${JSON.stringify(exit.error)}` : exit._tag;
 };
 
-// 1. Concurrent success: results keep input order.
-console.log(show(await Runtime.run(Safe.all([fetchDoc("a", 5), fetchDoc("b", 10)]))));
+// 1. A retry policy drives a flaky fetch to success.
+console.log("— retry + policy —");
+calls = 0;
+console.log(show(await Runtime.run(fetchFlaky("flaky"))), `(${calls} calls)`);
 
-// 2. Fail-fast: the first failure aborts the in-flight siblings.
-console.log(
-	show(await Runtime.run(Safe.all([fetchDoc("c", 500), fetchDoc("d", 500), Safe.err("boom")]))),
-);
+// 2. A deadline bounds the whole loop: the policy's waits observe the run's
+// signal, so a 30 ms budget inside a 50 ms minimum sleep ends as `interrupt`.
+console.log("— timeout bounds the loop —");
+const deadline = fetchDoc("zzz").pipe(Pipe.retry(Policy.spaced(500)), Pipe.timeout(30));
+console.log(show(await Runtime.run(deadline)));
 
-// 3. `AbortSignal.timeout` bounds a run — no timeout operator needed.
-console.log(show(await Runtime.run(fetchDoc("slow", 500), { signal: AbortSignal.timeout(20) })));
+// 3. Bounded fan-out with a policy per item: `Safe.forEach` keeps a sliding
+// window, each item runs its own retry+timeout.
+console.log("— forEach over pipes —");
+const bulk = (ids: readonly string[]) =>
+	Safe.forEach(ids, (id) => fetchDoc(id).pipe(Pipe.retry(flakyPolicy)), {
+		concurrency: 2,
+	});
+console.log(show(await Runtime.run(bulk(["a", "b", "a", "b"]))));
 
-// 4. `scoped` + a release with no resource: cleanup runs LIFO, on fail as on success.
-const work = Safe.scoped(
-	Safe.try(function* () {
-		yield* open("db");
-		yield* Safe.acquireRelease(Safe.ok(undefined), () => console.log("checkpoint"));
-		return yield* Safe.err("crash");
-	}),
+// 4. `Safe.allSettled` never fails: every Outcome, in order, for a caller to
+// fold. The failing sibling does not abort the rest.
+console.log("— allSettled keeps every outcome —");
+const partial = Safe.allSettled([fetchDoc("a"), fetchDoc("zzz"), fetchDoc("b")]);
+console.log(show(await Runtime.run(partial)));
+
+// 5. Cleanup assembles the same way: `scoped` + `ensuring` + `acquireRelease`
+// are pipe ops too, and `uninterruptible` masks a deadline for the critical
+// region while the parent still reports the abort.
+console.log("— cleanup composes in the same list —");
+const work = Safe.try(function* () {
+	yield* open("conn");
+	return yield* fetchDoc("a").pipe(Pipe.retry(flakyPolicy));
+}).pipe(
+	Pipe.ensuring(() => console.log("request ended")),
+	Pipe.scoped,
 );
 console.log(show(await Runtime.run(work)));
 
-// 5. Interrupting mid-run still releases what was acquired.
-const slowWork = Safe.scoped(
-	Safe.try(function* () {
-		yield* open("conn");
-		return yield* fetchDoc("slow", 500);
-	}),
-);
-console.log(show(await Runtime.run(slowWork, { signal: AbortSignal.timeout(20) })));
+// 6. A timeout outside `scoped` interrupts mid-run; the scope still releases.
+console.log("— interrupt still releases —");
+const slowWork = Safe.try(function* () {
+	yield* open("slow-conn");
+	return yield* Safe.call(async (s) => {
+		
+		await s.sleep(500);
+		return "never";
+	});
+}).pipe(Pipe.scoped);
+console.log(show(await Runtime.run(slowWork.pipe(Pipe.timeout(30)))));

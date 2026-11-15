@@ -8,7 +8,15 @@
 // `fail` — defects never travel the typed channel.
 //
 //   bun run examples/03-typed-errors.ts
-import { Errors, type ErrorsOf, Outcome, Runtime, Safe, type TaggedError } from "../src/index.ts";
+import {
+	Errors,
+	type ErrorsOf,
+	Outcome,
+	Pipe,
+	Runtime,
+	Safe,
+	type TaggedError,
+} from "../src/index.ts";
 
 // One factory per variant; the key is the only place the tag is written.
 const storageError = Errors.define({
@@ -37,7 +45,9 @@ const fetchObject = (key: string): Safe<string, StorageError, never> =>
 
 // `catchTag` recovers one variant — `not_found` leaves the error type.
 const withFallback = (key: string) =>
-	getObject(key).catchTag("not_found", (e) => Safe.ok(`default for ${e.id}`));
+	getObject(key).pipe(
+		Pipe.catchTag("not_found", (e: { id: string }) => Safe.ok(`default for ${e.id}`)),
+	);
 
 const show = <E extends TaggedError>(exit: Outcome<unknown, E>): string => {
 	if (exit._tag === "success") return `ok: ${JSON.stringify(exit.value)}`;

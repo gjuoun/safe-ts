@@ -11,6 +11,7 @@ import {
 	Errors,
 	type ErrorsOf,
 	type Outcome,
+	Pipe,
 	Runtime,
 	Safe,
 	type Scheduler,
@@ -77,7 +78,7 @@ const greet = (id: string) =>
 		const repo = yield* Services.get(UserRepo);
 		const user = yield* repo.find(id);
 		return `found: ${user.name}`;
-	}).catchTag("not_found", (e) => Safe.ok(`handled: not_found ${e.id}`));
+	}).pipe(Pipe.catchTag("not_found", (e: { id: string }) => Safe.ok(`handled: not_found ${e.id}`)));
 
 const show = (exit: Outcome<string, never>): string =>
 	exit._tag === "success" ? exit.value : exit._tag;
