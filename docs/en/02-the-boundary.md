@@ -7,7 +7,7 @@ callback and classifies how it stopped:
 - omit it → the throw is a `die`: a defect, not something you declared
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const parse = (text: string) =>
   Safe.call(
@@ -24,7 +24,7 @@ console.log(await Runtime.run(parse("{")));
 The same rule covers async work. A rejection is classified exactly like a throw:
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const fetchUser = (id: string) =>
   Safe.call(
@@ -42,7 +42,7 @@ console.log(exit._tag); // "success" | "fail" | "die" | "interrupt"
 The callback receives a `Scheduler` — cancellation lives there (chapter 7):
 
 ```ts
-import { Safe } from "safe-ts";
+import { Safe } from "@gjuoun/safe-ts";
 
 const wait = Safe.call(async (s) => {
   await s.sleep(50);

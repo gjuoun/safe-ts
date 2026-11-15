@@ -8,7 +8,7 @@
 - `R` — 它还需要的服务（第 5 章）
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const answer = Safe.ok(42);
 console.log(await Runtime.run(answer)); // { _tag: "success", value: 42 }
@@ -24,7 +24,7 @@ run 从不抛异常、也不 reject。结果是扁平的 `Outcome`，四个分�
 | `interrupt` | 有人中断了这次 run |
 
 ```ts
-import { Outcome, Runtime, Safe } from "safe-ts";
+import { Outcome, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const exit = await Runtime.run(Safe.err("not_found"));
 if (Outcome.isFail(exit)) console.log(exit.error); // "not_found"

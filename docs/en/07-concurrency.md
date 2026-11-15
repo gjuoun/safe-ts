@@ -4,7 +4,7 @@ Every wrapper here is a `Safe → Safe` factory — `exec` plus a signal, a time
 or a lane, never a fiber — and it meets a Safe inside `pipe`:
 
 ```ts
-import { Pipe, Safe } from "safe-ts";
+import { Pipe, Safe } from "@gjuoun/safe-ts";
 
 const fetch: Safe<number, string, never> = Safe.ok(1);
 const policy = { attempts: 3, delayMs: 10 };
@@ -22,7 +22,7 @@ same fold for the common case. Both are lazy: nothing runs until `Runtime.run`.
 ## `Safe.all` — fan out, keep order
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const fetchDoc = (id: string) => Safe.call(async () => `doc:${id}`);
 
@@ -37,7 +37,7 @@ in input order, so a caller reads `_tag` per element instead.
 ## `Safe.race` — first to settle
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const slow = Safe.call(async (s) => {
   await s.sleep(200);
@@ -55,7 +55,7 @@ loser has actually settled — "the run returned" means "the work stopped".
 ## `Safe.forEach` — bounded fan-out
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const work = (n: number) => Safe.call(async () => n * 2);
 
@@ -70,7 +70,7 @@ it. The first non-success aborts the rest; with no limit it is `Safe.all`.
 ## Timeouts
 
 ```ts
-import { Outcome, Pipe, Runtime, Safe } from "safe-ts";
+import { Outcome, Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const slow = Safe.call(async (s) => {
   await s.sleep(500);
@@ -89,7 +89,7 @@ virtualises it.
 ## Retries, and the Policy that drives them
 
 ```ts
-import { Pipe, Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 let attempts = 0;
 const flaky = Safe.call(
@@ -109,7 +109,7 @@ A policy is a value — `(state) => ms | undefined` — assembled in the
 `Policy` namespace the same way wrappers assemble in `Safe.pipe`:
 
 ```ts
-import { Policy } from "safe-ts";
+import { Policy } from "@gjuoun/safe-ts";
 
 // exponential backoff capped at 10 s per step — min keeps the shorter delay
 Policy.min([Policy.exponential(250), Policy.spaced(10_000)]);
@@ -133,7 +133,7 @@ resources are released before the next one starts — ahead of Effect here.
 ## Cancellation and interruptibility
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const program = Safe.try(function* () {
   yield* Safe.delay(500);
@@ -153,7 +153,7 @@ combinator constants, no parens — for masking a deadline and opting a region
 back in:
 
 ```ts
-import { Pipe, Safe } from "safe-ts";
+import { Pipe, Safe } from "@gjuoun/safe-ts";
 
 declare const critical: Safe<number, never, never>;
 declare const acquire: Safe<{ close(): void }, never, never>;

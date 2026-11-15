@@ -4,7 +4,7 @@
 终止函数体，并成为结果。
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const parse = (text: string) =>
   Safe.call(() => JSON.parse(text) as { name: string }, (): "bad_json" => "bad_json");
@@ -22,7 +22,7 @@ console.log(await Runtime.run(program));
 提前失败仍会执行 `finally`，所以照常写的清理是保留的：
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const traced = Safe.try(function* () {
   try {
@@ -40,7 +40,7 @@ console.log((await Runtime.run(traced))._tag); // 先打印 cleanup runs，再�
 同步函数体也能 yield 异步的 Safe —— 编排靠 `yield*`，不是 `await`：
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const slow = Safe.call(async () => "loaded");
 
@@ -61,7 +61,7 @@ promise。优先用同步函数体。
 返回值类型是 `TNext`，需要一次类型断言：
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const program = Safe.try(function* () {
   const n = (yield Safe.ok(1)) as number;

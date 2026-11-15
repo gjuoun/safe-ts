@@ -4,7 +4,7 @@
 stops the body there and becomes the result.
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const parse = (text: string) =>
   Safe.call(() => JSON.parse(text) as { name: string }, (): "bad_json" => "bad_json");
@@ -22,7 +22,7 @@ console.log(await Runtime.run(program));
 An early stop still runs `finally` blocks, so cleanup written the normal way is kept:
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const traced = Safe.try(function* () {
   try {
@@ -40,7 +40,7 @@ console.log((await Runtime.run(traced))._tag); // cleanup runs, then "fail"
 A sync body can yield async Safes — `yield*` is the sequencing, not `await`:
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const slow = Safe.call(async () => "loaded");
 
@@ -62,7 +62,7 @@ A plain `yield` hands the `Safe` straight to the driver instead of going through
 `TNext`, so it needs a cast:
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const program = Safe.try(function* () {
   const n = (yield Safe.ok(1)) as number;

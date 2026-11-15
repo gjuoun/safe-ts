@@ -28,7 +28,7 @@ for (const [lang, path] of targets) {
 		const found = text.matchAll(/```ts\n([\s\S]*?)```/g);
 		let i = 0;
 		for (const match of found) {
-			const code = (match[1] ?? "").replaceAll('from "safe-ts"', `from "${entry}"`);
+			const code = (match[1] ?? "").replaceAll('from "@gjuoun/safe-ts"', `from "${entry}"`);
 			const path = `${out}/${lang}-${file.replace(/\.md$/, "")}-${i++}.ts`;
 			await writeFile(path, code);
 			files.push(path);

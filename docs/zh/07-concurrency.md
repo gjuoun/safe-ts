@@ -4,7 +4,7 @@
 一条车道，没有 fiber —— 它们在 `pipe` 里与 Safe 相遇：
 
 ```ts
-import { Pipe, Safe } from "safe-ts";
+import { Pipe, Safe } from "@gjuoun/safe-ts";
 
 const fetch: Safe<number, string, never> = Safe.ok(1);
 const policy = { attempts: 3, delayMs: 10 };
@@ -22,7 +22,7 @@ Safe.pipe(fetch, [Pipe.timeout(2_000, () => "timeout" as const), Pipe.retry(poli
 ## `Safe.all` —— 并发、保序
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const fetchDoc = (id: string) => Safe.call(async () => `doc:${id}`);
 
@@ -36,7 +36,7 @@ console.log(exit); // { _tag: "success", value: ["doc:a", "doc:b"] }
 ## `Safe.race` —— 谁先结束用谁
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const slow = Safe.call(async (s) => {
   await s.sleep(200);
@@ -53,7 +53,7 @@ console.log(await Runtime.run(Safe.race([slow, fast]))); // { _tag: "success", v
 ## `Safe.forEach` —— 有上限的并发
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const work = (n: number) => Safe.call(async () => n * 2);
 
@@ -68,7 +68,7 @@ console.log(exit); // { _tag: "success", value: [2, 4, 6] }
 ## 超时
 
 ```ts
-import { Outcome, Pipe, Runtime, Safe } from "safe-ts";
+import { Outcome, Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const slow = Safe.call(async (s) => {
   await s.sleep(500);
@@ -86,7 +86,7 @@ run 的时钟上等待，所以 `Clocks.manual()` 可以把它虚拟化。
 ## 重试，以及驱动它的 Policy
 
 ```ts
-import { Pipe, Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 let attempts = 0;
 const flaky = Safe.call(
@@ -106,7 +106,7 @@ console.log(await Runtime.run(flaky.pipe(Pipe.retry({ attempts: 3, delayMs: 5 })
 方式和包装器在 `Safe.pipe` 里组装相同：
 
 ```ts
-import { Policy } from "safe-ts";
+import { Policy } from "@gjuoun/safe-ts";
 
 // 指数退避，每步封顶 10 秒 —— min 取较短的那个
 Policy.min([Policy.exponential(250), Policy.spaced(10_000)]);
@@ -128,7 +128,7 @@ Policy.pipe(Policy.exponential(250), [
 ## 取消与可中断性
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const program = Safe.try(function* () {
   yield* Safe.delay(500);
@@ -146,7 +146,7 @@ console.log(exit._tag); // "interrupt"
 括号 —— 分别用于屏蔽 deadline 和把区域重新暴露给它：
 
 ```ts
-import { Pipe, Safe } from "safe-ts";
+import { Pipe, Safe } from "@gjuoun/safe-ts";
 
 declare const critical: Safe<number, never, never>;
 declare const acquire: Safe<{ close(): void }, never, never>;

@@ -3,7 +3,7 @@
 Typed errors and dependency-aware effects for TypeScript — without a fiber runtime.
 
 ```ts
-import { Errors, Runtime, Safe, Services } from "safe-ts";
+import { Errors, Runtime, Safe, Services } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ message: `no user ${id}`, id }),
@@ -42,11 +42,12 @@ await Runtime.run(Services.provide(getUser("u1"), [UserRepo]));
 
 ## Install
 
-Not on npm yet. As a git dependency it builds itself on install:
-
 ```sh
-bun add github:gjuoun/safe-ts
+bun add @gjuoun/safe-ts
+# or: npm i @gjuoun/safe-ts
 ```
+
+ESM only, zero runtime dependencies, one bundle and one `.d.ts`. Node ≥ 20.3 (or Bun).
 
 ## Docs
 

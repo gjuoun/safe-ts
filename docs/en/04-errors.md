@@ -3,7 +3,7 @@
 You declare a catalog: one factory per variant, the payload is yours.
 
 ```ts
-import { Errors } from "safe-ts";
+import { Errors } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ message: `no user ${id}`, id }),
@@ -15,7 +15,7 @@ A factory's return value is the payload, and the **key is the tag** — there is
 injected `code` and no undeclared `message`. Using them makes `E` a union:
 
 ```ts
-import { Errors, Runtime, Safe } from "safe-ts";
+import { Errors, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ message: `no user ${id}`, id }),
@@ -36,7 +36,7 @@ console.log(await Runtime.run(load("u2")));
 `catchTag` matches one key and hands you its payload; every other arm passes through.
 
 ```ts
-import { Errors, Pipe, Runtime, Safe } from "safe-ts";
+import { Errors, Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ message: `no user ${id}`, id }),
@@ -62,7 +62,7 @@ console.log(await Runtime.run(tolerant));
 ## Rendering one for a human
 
 ```ts
-import { Errors } from "safe-ts";
+import { Errors } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ message: `no user ${id}`, id }),

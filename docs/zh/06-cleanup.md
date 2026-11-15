@@ -5,7 +5,7 @@
 包住一个 Safe。
 
 ```ts
-import { Pipe, Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const openDb = () =>
   Safe.call(() => ({ open: true })).pipe(
@@ -26,7 +26,7 @@ console.log((await Runtime.run(program))._tag); // 先 release after fail，再 
 不需要括号：
 
 ```ts
-import { Pipe, Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const work = Safe.try(function* () {
   yield* Safe.ok("conn").pipe(Pipe.acquireRelease(() => console.log("closed")));
@@ -39,7 +39,7 @@ console.log(await Runtime.run(work)); // 先 closed，再 success
 ## `ensuring`：没有资源的清理
 
 ```ts
-import { Pipe, Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const timed = Safe.ok(1).pipe(Pipe.ensuring((exit) => console.log(`always: ${exit._tag}`)));
 console.log(await Runtime.run(timed)); // 先 always: success，再 success
@@ -53,7 +53,7 @@ console.log(await Runtime.run(timed)); // 先 always: success，再 success
 - run 被中断时释放仍然执行 —— 这正是登记它的意义。
 
 ```ts
-import { Pipe, Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const slow = Safe.try(function* () {
   yield* Safe.ok("conn").pipe(Pipe.acquireRelease(() => console.log("closed")));

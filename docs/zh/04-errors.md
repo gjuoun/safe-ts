@@ -3,7 +3,7 @@
 先声明一份错误目录：每个变体一个工厂，payload 由你决定。
 
 ```ts
-import { Errors } from "safe-ts";
+import { Errors } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ message: `no user ${id}`, id }),
@@ -15,7 +15,7 @@ const userError = Errors.define({
 `message`。使用它们会让 `E` 成为一个联合类型：
 
 ```ts
-import { Errors, Runtime, Safe } from "safe-ts";
+import { Errors, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ message: `no user ${id}`, id }),
@@ -36,7 +36,7 @@ console.log(await Runtime.run(load("u2")));
 `catchTag` 匹配一个键并把 payload 交给你；其它分支原样穿过。
 
 ```ts
-import { Errors, Pipe, Runtime, Safe } from "safe-ts";
+import { Errors, Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ message: `no user ${id}`, id }),
@@ -62,7 +62,7 @@ console.log(await Runtime.run(tolerant));
 ## 渲染给人看
 
 ```ts
-import { Errors } from "safe-ts";
+import { Errors } from "@gjuoun/safe-ts";
 
 const userError = Errors.define({
   not_found: (id: string) => ({ message: `no user ${id}`, id }),

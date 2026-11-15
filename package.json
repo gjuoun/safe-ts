@@ -1,5 +1,5 @@
 {
-	"name": "safe-ts",
+	"name": "@gjuoun/safe-ts",
 	"version": "0.1.0",
 	"description": "One effect system for TypeScript without a fiber runtime: a lazy Safe<A, E, R> with one Safe.call boundary, Safe.try sequencing, a Scheduler for cancellation, a flat Outcome, class services and finalizers.",
 	"type": "module",
@@ -16,6 +16,32 @@
 		"README.md",
 		"LICENSE"
 	],
+	"sideEffects": false,
+	"license": "MIT",
+	"keywords": [
+		"typescript",
+		"effect",
+		"result",
+		"typed-errors",
+		"dependency-injection",
+		"cancellation",
+		"zero-dependencies",
+		"esm"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/gjuoun/safe-ts.git"
+	},
+	"homepage": "https://github.com/gjuoun/safe-ts#readme",
+	"bugs": {
+		"url": "https://github.com/gjuoun/safe-ts/issues"
+	},
+	"engines": {
+		"node": ">=20.3"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"lint": "biome check .",

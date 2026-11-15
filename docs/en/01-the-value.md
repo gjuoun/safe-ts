@@ -8,7 +8,7 @@ A `Safe<A, E, R>` is a **description of work**, not work. Nothing runs until you
 - `R` — the services it still needs (chapter 5)
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const answer = Safe.ok(42);
 console.log(await Runtime.run(answer)); // { _tag: "success", value: 42 }
@@ -24,7 +24,7 @@ Running never throws and never rejects. The result is a flat `Outcome` with four
 | `interrupt` | someone aborted the run |
 
 ```ts
-import { Outcome, Runtime, Safe } from "safe-ts";
+import { Outcome, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const exit = await Runtime.run(Safe.err("not_found"));
 if (Outcome.isFail(exit)) console.log(exit.error); // "not_found"

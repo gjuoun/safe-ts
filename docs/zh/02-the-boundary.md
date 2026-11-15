@@ -6,7 +6,7 @@
 - 没给 → 抛出来的是 `die`：缺陷，不是你声明的错误
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const parse = (text: string) =>
   Safe.call(
@@ -23,7 +23,7 @@ console.log(await Runtime.run(parse("{")));
 异步遵循同一条规则，reject 与 throw 的分类完全一致：
 
 ```ts
-import { Runtime, Safe } from "safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const fetchUser = (id: string) =>
   Safe.call(
@@ -41,7 +41,7 @@ console.log(exit._tag); // "success" | "fail" | "die" | "interrupt"
 回调拿到一个 `Scheduler`，取消能力在那里（第 7 章）：
 
 ```ts
-import { Safe } from "safe-ts";
+import { Safe } from "@gjuoun/safe-ts";
 
 const wait = Safe.call(async (s) => {
   await s.sleep(50);

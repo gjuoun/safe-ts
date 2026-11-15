@@ -5,7 +5,7 @@
 factory — it wraps the Safe inside `pipe`, like every wrapper.
 
 ```ts
-import { Pipe, Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const openDb = () =>
   Safe.call(() => ({ open: true })).pipe(
@@ -26,7 +26,7 @@ console.log((await Runtime.run(program))._tag); // release after fail, then "fai
 it is a combinator constant, so it pipes without parens:
 
 ```ts
-import { Pipe, Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const work = Safe.try(function* () {
   yield* Safe.ok("conn").pipe(Pipe.acquireRelease(() => console.log("closed")));
@@ -39,7 +39,7 @@ console.log(await Runtime.run(work)); // closed, then success
 ## `ensuring`: cleanup without a resource
 
 ```ts
-import { Pipe, Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const timed = Safe.ok(1).pipe(Pipe.ensuring((exit) => console.log(`always: ${exit._tag}`)));
 console.log(await Runtime.run(timed)); // always: success, then success
@@ -53,7 +53,7 @@ console.log(await Runtime.run(timed)); // always: success, then success
 - If the run is aborted, the release still runs — that is the point of registering it.
 
 ```ts
-import { Pipe, Runtime, Safe } from "safe-ts";
+import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
 
 const slow = Safe.try(function* () {
   yield* Safe.ok("conn").pipe(Pipe.acquireRelease(() => console.log("closed")));

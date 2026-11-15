@@ -4,7 +4,7 @@ A service is a plain class. `static *init` returns the instance, and it may name
 own dependencies with `yield* Services.get(Dep)`.
 
 ```ts
-import { Runtime, Safe, Services } from "safe-ts";
+import { Runtime, Safe, Services } from "@gjuoun/safe-ts";
 
 class Logger {
   static *init() {
@@ -37,7 +37,7 @@ The program's type says it still needs a `UserRepo`: `Safe<{id,name}, never, Use
 compile error**, not a runtime lookup that returns `undefined`.
 
 ```ts
-import { Runtime, Safe, Services } from "safe-ts";
+import { Runtime, Safe, Services } from "@gjuoun/safe-ts";
 
 class Config {
   constructor(readonly dbUrl: string) {}
@@ -63,7 +63,7 @@ console.log(await Runtime.run(Services.provide(program, [Config])));
 | `Runtime.make([A, B])` | build once and reuse across runs, then `dispose()` |
 
 ```ts
-import { Runtime } from "safe-ts";
+import { Runtime } from "@gjuoun/safe-ts";
 
 class Db {
   static *init() {
@@ -85,7 +85,7 @@ A value that is not built by a class enters the same way — `Services.new(Class
 That is the test fake, and it is also how the composition root passes configuration in:
 
 ```ts
-import { Runtime, Safe, Services } from "safe-ts";
+import { Runtime, Safe, Services } from "@gjuoun/safe-ts";
 
 class Config {
   constructor(readonly dbUrl: string) {}

@@ -4,7 +4,7 @@
 自己的依赖。
 
 ```ts
-import { Runtime, Safe, Services } from "safe-ts";
+import { Runtime, Safe, Services } from "@gjuoun/safe-ts";
 
 class Logger {
   static *init() {
@@ -36,7 +36,7 @@ const program = Safe.try(function* () {
 拒绝 `R` 不是 `never` 的 `Safe`，所以**少给服务是编译错误**，而不是运行时查到 `undefined`。
 
 ```ts
-import { Runtime, Safe, Services } from "safe-ts";
+import { Runtime, Safe, Services } from "@gjuoun/safe-ts";
 
 class Config {
   constructor(readonly dbUrl: string) {}
@@ -62,7 +62,7 @@ console.log(await Runtime.run(Services.provide(program, [Config])));
 | `Runtime.make([A, B])` | 构建一次、跨多次 run 复用，最后 `dispose()` |
 
 ```ts
-import { Runtime } from "safe-ts";
+import { Runtime } from "@gjuoun/safe-ts";
 
 class Db {
   static *init() {
@@ -84,7 +84,7 @@ await runtime.dispose(); // 按构建的逆序关闭每个实例
 也是组合根把配置传进来的方式：
 
 ```ts
-import { Runtime, Safe, Services } from "safe-ts";
+import { Runtime, Safe, Services } from "@gjuoun/safe-ts";
 
 class Config {
   constructor(readonly dbUrl: string) {}
