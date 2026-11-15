@@ -13,7 +13,7 @@ bun add @gjuoun/safe-ts       # Bun
 ```
 
 <details>
-<summary><b>Quick start</b> — install, one Safe, what it gives you</summary>
+<summary><h3>Quick start</h3></summary>
 
 ```ts
 import { Errors, Runtime, Safe } from "@gjuoun/safe-ts";
