@@ -10,7 +10,7 @@
 //   Policy:    forever, spaced, exponential, min, max, while, modifyDelay, pipe
 //   Clocks:    real, manual
 //   Runtime:   run — the one entry point
-//   Outcome, Scheduler: classes
+//   Outcome: value and type; Scheduler: callback interface
 import { ops } from "./combinators.ts";
 import { defineErrors, renderError } from "./errors.ts";
 import { catchTag } from "./safe.ts";
@@ -52,5 +52,5 @@ export { Outcome } from "./outcome.ts";
 export { Policy, type PolicyOp, type PolicyState } from "./policy.ts";
 export { Runtime } from "./runtime.ts";
 export { type RunOptions, Safe, type SafeOp } from "./safe.ts";
-export { Scheduler } from "./scheduler.ts";
+export type { Scheduler } from "./scheduler.ts";
 export type { Finalizer } from "./scope.ts";

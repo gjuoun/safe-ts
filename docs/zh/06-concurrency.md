@@ -151,7 +151,6 @@ console.log(exit._tag); // "interrupt"
 | `s.onCancel(fn)` | 收不了 signal 的：定时器、socket、worker |
 | `s.sleep(ms)` | 可取消的等待；`Clocks.manual()` 下虚拟化 |
 | `s.now()` | 这次运行的时钟 —— 别用 `Date.now()`，manual clock 推不动它 |
-| `s.aborted` | 便宜的提前退出 |
 
 优先用 `s.signal`。它已经并入了你上面所有的 deadline 与取消（`timeout` 用
 `AbortSignal.any` 把自己的 controller 合进来），直接传出去就完事：

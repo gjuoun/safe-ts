@@ -1,109 +1,96 @@
-// examples/04-scheduler.ts — what `Safe.call` hands your callback, and what it does on abort.
+// examples/04-scheduler.ts — start with HTTP, then a database without signal support.
 //
-// A Scheduler is per call, bound to that run's signal and clock. You never build
-// one. This file walks every member and every surprising exit, so the behaviour
-// is something you have read rather than something you guess:
-//
-//   s.signal    → give it to APIs that take an AbortSignal (fetch, drivers)
-//   s.onCancel  → for what cannot take one (timers, sockets, workers)
-//   s.sleep     → a cancellable wait, virtual on a manual clock
-//   s.now       → the run's clock
-//
-//   bun run examples/04-scheduler.ts
+// Run: bun run examples/04-scheduler.ts
+// Safe.call runs only when Runtime.run is called. It gives each call a Scheduler (s).
 import { Clocks, type Outcome, Runtime, Safe } from "../src/index.ts";
+
+interface User {
+	readonly id: string;
+	readonly name: string;
+}
+
+// Fake HTTP client: like fetch, it accepts an AbortSignal.
+const http = {
+	async getUser(id: string, options: { signal: AbortSignal }): Promise<User> {
+		await Clocks.real.sleep(20, options.signal);
+		if (id === "missing") throw new Error("HTTP 404");
+		return { id, name: "Ada" };
+	},
+};
+
+// Fake DB client: it cannot accept an AbortSignal, but returns a cancel function.
+const db = {
+	cancelled: 0,
+	queryUser(id: string, cancelFails = false) {
+		let stop = () => {};
+		const result = new Promise<User>((resolve, reject) => {
+			const timer = setTimeout(() => resolve({ id, name: "Ada" }), 30);
+			stop = () => {
+				clearTimeout(timer);
+				this.cancelled++;
+				reject(new Error("query cancelled"));
+				if (cancelFails) throw new Error("DB cancel failed");
+			};
+		});
+		return { result, cancel: () => stop() };
+	},
+};
 
 const show = (exit: Outcome<unknown, unknown>): string => {
 	if (exit._tag === "success") return `success ${JSON.stringify(exit.value)}`;
 	if (exit._tag === "fail") return `fail ${JSON.stringify(exit.error)}`;
-	return exit._tag;
+	if (exit._tag === "die") return `die ${String(exit.defect)}`;
+	return "interrupt";
 };
 
-// 1 · s.signal is the run's signal: aborting the run aborts the work.
-{
-	const client = new AbortController();
-	const work = Safe.call(
-		(s) =>
-			new Promise<string>((_resolve, reject) => {
-				s.signal.addEventListener("abort", () => reject(new Error("aborted")));
-			}),
-		// Declared, but a cancel never reaches it — see 2 for the non-cancelled case.
-		(e) => `mapped: ${String(e)}`,
+// 1. Normal HTTP call. No cancellation requested: just pass s.signal to the client.
+const getUser = (id: string) =>
+	Safe.call(
+		(s) => http.getUser(id, { signal: s.signal }),
+		(error) => `HTTP request failed: ${String(error)}`,
 	);
-	setTimeout(() => client.abort(), 10);
-	console.log("1 signal         ", show(await Runtime.run(work, { signal: client.signal })));
-}
+console.log("1 HTTP success  ", show(await Runtime.run(getUser("u1"))));
 
-// 2 · Without a cancel, the same rejection *is* a typed failure: `mapErr` runs.
-{
-	const work = Safe.call(
-		async () => {
-			throw new Error("ECONNRESET");
-		},
-		(e) => `mapped: ${String(e)}`,
-	);
-	console.log("2 plain rejection", show(await Runtime.run(work)));
-}
+// 2. A normal HTTP error goes through mapErr and becomes a typed fail.
+console.log("2 HTTP 404      ", show(await Runtime.run(getUser("missing"))));
 
-// 3 · onCancel is for resources that cannot take a signal. The timer is cleared
-//     when the run is cancelled, so nothing fires afterwards.
-{
-	const client = new AbortController();
-	let cleared = 0;
-	const work = Safe.call(
-		(s) =>
-			new Promise<string>((resolve) => {
-				const timer = setTimeout(() => resolve("too late"), 50);
-				s.onCancel(() => {
-					clearTimeout(timer);
-					cleared++;
-				});
-			}),
-	);
-	setTimeout(() => client.abort(), 5);
-	const exit = await Runtime.run(work, { signal: client.signal });
-	console.log("3 onCancel       ", show(exit), `| cleared ${cleared} timer`);
-}
+// 3. The caller cancels an in-flight HTTP request. No onCancel is needed:
+//    the client already understands s.signal. Cancellation is interrupt, not fail.
+console.log(
+	"3 HTTP cancelled",
+	show(await Runtime.run(getUser("u1"), { signal: AbortSignal.timeout(5) })),
+);
 
-// 4 · A throwing cleanup is a defect, not a swallowed error.
-{
-	const client = new AbortController();
-	const work = Safe.call((s) => {
-		s.onCancel(() => {
-			throw new Error("cleanup failed");
-		});
-		return new Promise<string>(() => {});
+// 4. A DB client with no signal support still works normally.
+const findUser = (id: string, cancelFails = false) =>
+	Safe.call((s) => {
+		const query = db.queryUser(id, cancelFails);
+		s.onCancel(query.cancel);
+		return query.result;
 	});
-	setTimeout(() => client.abort(), 5);
-	console.log("4 throwing cancel", show(await Runtime.run(work, { signal: client.signal })));
-}
+console.log("4 DB success    ", show(await Runtime.run(findUser("u2"))));
 
-// 5 · Callbacks are released when the call settles: an abort that arrives later
-//     does not run them.
-{
-	const client = new AbortController();
-	let after = 0;
-	const exit = await Runtime.run(
-		Safe.call((s) => {
-			s.onCancel(() => after++);
-			return "done";
-		}),
-		{ signal: client.signal },
-	);
-	client.abort();
-	console.log("5 settled first  ", show(exit), `| callbacks run after abort: ${after}`);
-}
+// 5. To cancel that DB query, onCancel calls the client's cancel method.
+//    The query rejects, but Safe.call reports interrupt because the run was aborted.
+console.log(
+	"5 DB cancelled  ",
+	show(await Runtime.run(findUser("u2"), { signal: AbortSignal.timeout(5) })),
+	`| cancel called ${db.cancelled} time(s)`,
+);
 
-// 6 · sleep reads the run's clock. A manual clock makes a one-second wait free,
-//     and an abort during the wait is an interrupt.
-{
-	const { clock, advance } = Clocks.manual();
-	const work = Safe.call((s) => s.sleep(1000).then(() => "woke"));
-	const pending = Runtime.run(work, { clock });
-	advance(1000);
-	console.log("6 manual sleep   ", show(await pending));
+// 6. For a wait, use s.sleep instead of managing a timer or listener yourself.
+//    A manual clock makes this one-second wait immediate in tests.
+const { clock, advance } = Clocks.manual();
+const waiting = Runtime.run(
+	Safe.call((s) => s.sleep(1000).then(() => "awake")),
+	{ clock },
+);
+advance(1000);
+console.log("6 sleep         ", show(await waiting));
 
-	const client = new AbortController();
-	const waiting = Safe.call((s) => s.sleep(1000).then(() => "woke"));
-	setTimeout(() => client.abort(), 5);
-	console.log("7 sleep cancelled", show(await Runtime.run(waiting, { signal: client.signal })));
-}
+// 7. If DB cancellation itself throws, that is a defect (die), not an interrupt.
+//    This is an exceptional cleanup failure, not how normal cancellation looks.
+console.log(
+	"7 cancel throws ",
+	show(await Runtime.run(findUser("u3", true), { signal: AbortSignal.timeout(5) })),
+);

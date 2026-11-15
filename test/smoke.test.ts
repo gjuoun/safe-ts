@@ -3,9 +3,10 @@ import * as safe from "../src/index.ts";
 
 test("entry exports the namespaces and the pipe ops", () => {
 	expect(safe.VERSION).toBe("0.1.0");
-	for (const name of ["Outcome", "Runtime", "Safe", "Scheduler", "Errors", "Policy", "Clocks"]) {
+	for (const name of ["Outcome", "Runtime", "Safe", "Errors", "Policy", "Clocks"]) {
 		expect(name in safe).toBe(true);
 	}
+	expect("Scheduler" in safe).toBe(false);
 	// The pipe ops live in the Pipe namespace — assemble through pipe, not Safe.
 	for (const name of [
 		"timeout",

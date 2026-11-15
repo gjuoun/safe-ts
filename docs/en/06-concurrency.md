@@ -158,7 +158,6 @@ what should stop *before* you start the work.
 | `s.onCancel(fn)` | what cannot take one: a timer, a socket, a worker |
 | `s.sleep(ms)` | a cancellable wait; virtual on `Clocks.manual()` |
 | `s.now()` | the run's clock — not `Date.now()`, which a manual clock cannot move |
-| `s.aborted` | a cheap early exit |
 
 Reach for `s.signal` first. It already carries every deadline and cancellation
 above you (`timeout` folds its controller in with `AbortSignal.any`), so passing

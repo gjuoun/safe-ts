@@ -13,7 +13,7 @@ import { type Clock, Clocks } from "./clock.ts";
 import { delay, type ForEachOptions, forEach, type RaceOptions, race } from "./combinators.ts";
 import type { Arm } from "./errors.ts";
 import { isThenable, Outcome } from "./outcome.ts";
-import { NEVER_ABORTED, Scheduler } from "./scheduler.ts";
+import { CallScheduler, NEVER_ABORTED, type Scheduler } from "./scheduler.ts";
 import { Scope } from "./scope.ts";
 
 /** Runtime context threaded through every Safe of one run. Internal. */
@@ -108,7 +108,7 @@ export class Safe<A, E> {
 			);
 		}
 		const call = new Safe<Awaited<A>, E>((ctx) => {
-			const scheduler = new Scheduler(ctx.signal, ctx.clock, ctx.deferInterrupt === true);
+			const scheduler = new CallScheduler(ctx.signal, ctx.clock, ctx.deferInterrupt === true);
 			let result: A | PromiseLike<A>;
 			try {
 				result = fn(scheduler);

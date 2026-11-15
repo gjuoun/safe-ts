@@ -46,7 +46,7 @@ import { Safe } from "@gjuoun/safe-ts";
 
 const wait = Safe.call(async (s) => {
   await s.sleep(50);
-  return s.aborted ? "stopped" : "done";
+  return "done";
 });
 ```
 

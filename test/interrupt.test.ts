@@ -75,7 +75,7 @@ describe("Safe.all", () => {
 				new Promise<number>((resolve) => {
 					const t = setTimeout(() => resolve(1), 1000);
 					s.onCancel(() => {
-						siblingAborted = s.aborted;
+						siblingAborted = s.signal.aborted;
 						clearTimeout(t);
 						resolve(0);
 					});
