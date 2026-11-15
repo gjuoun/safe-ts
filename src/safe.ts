@@ -9,7 +9,16 @@
 // from a Safe.try body or a service `init`. `Safe.call` catches its own call, so
 // a throw nobody mapped is a `die`, never a typed `fail`.
 import { type AllA, type AllE, type AllR, all } from "./all.ts";
-import { type ForEachOptions, forEach, type RetryOptions, retry, timeout } from "./combinators.ts";
+import {
+	ensuring,
+	type ForEachOptions,
+	forEach,
+	type RetryOptions,
+	race,
+	retry,
+	sleep,
+	timeout,
+} from "./combinators.ts";
 import type { Arm, CodeOf, Payload } from "./errors.ts";
 import { isThenable, Outcome } from "./outcome.ts";
 import { NEVER_ABORTED, Scheduler } from "./scheduler.ts";
@@ -200,6 +209,26 @@ export class Safe<A, E, R> {
 		onTimeout?: () => E2,
 	): Safe<A, E | E2, R> {
 		return timeout(safe, ms, onTimeout);
+	}
+
+	/** Wait `ms`; an abort during the wait is an interrupt. */
+	static sleep(ms: number): Safe<void, never, never> {
+		return sleep(ms);
+	}
+
+	/** Keep the first Safe to settle; the losers are aborted. */
+	static race<const T extends readonly Safe<any, any, any>[]>(
+		safes: T,
+	): Safe<AllA<T>[number], AllE<T>, AllR<T>> {
+		return race(safes);
+	}
+
+	/** Run `safe`, then always run `cleanup` with its outcome. */
+	static ensuring<A, E, R>(
+		safe: Safe<A, E, R>,
+		cleanup: (exit: Outcome<A, E>) => void | PromiseLike<void>,
+	): Safe<A, E, R> {
+		return ensuring(safe, cleanup);
 	}
 
 	/** Re-run on a typed failure; a defect or an interrupt is never retried. */

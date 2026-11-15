@@ -3,10 +3,12 @@
 // Effect gets timeout, retry and bounded fan-out from its runtime. None of the
 // three needs one: each is `exec` plus a signal, a timer or a batch. fork/join
 // is the one that does need a loop, and it stays out.
-import { all } from "./all.ts";
+import { type AllA, type AllE, type AllR, all } from "./all.ts";
 import { isThenable, Outcome } from "./outcome.ts";
-import { type Ctx, exec, Safe } from "./safe.ts";
+import { type Ctx, exec, NEVER_ABORTED, Safe } from "./safe.ts";
 import { Scope } from "./scope.ts";
+
+type AnySafe = Safe<any, any, any>;
 
 /** Wait `ms`, or reject with the signal's reason if it aborts first. */
 const wait = (ms: number, signal: AbortSignal): Promise<void> =>
@@ -28,6 +30,92 @@ const wait = (ms: number, signal: AbortSignal): Promise<void> =>
 
 /** The reason a timeout aborts with, so it is not confused with a caller abort. */
 export const TIMEOUT = Symbol("safe-ts.timeout");
+
+/** Wait `ms`, or stop as an interrupt when the run is aborted first. */
+export const sleep = (ms: number): Safe<void, never, never> =>
+	new Safe<void, never, never>((ctx) => {
+		if (ctx.signal.aborted) return Outcome.interrupt();
+		if (ms <= 0) return Outcome.succeed(undefined);
+		return wait(ms, ctx.signal).then(
+			() => Outcome.succeed(undefined),
+			() => Outcome.interrupt(),
+		);
+	});
+
+/**
+ * Run every Safe and keep the first to settle — success, failure or defect. The
+ * losers are aborted through a local controller the way `Safe.all` aborts its
+ * siblings, so a loser that ignores its signal still runs to completion.
+ */
+export const race = <const T extends readonly AnySafe[]>(
+	safes: T,
+): Safe<AllA<T>[number], AllE<T>, AllR<T>> =>
+	new Safe<AllA<T>[number], AllE<T>, AllR<T>>((ctx) => {
+		if (safes.length === 0) {
+			return Outcome.die(new Error("safe-ts: Safe.race needs at least one Safe"));
+		}
+		const local = new AbortController();
+		const child: Ctx = {
+			...ctx,
+			signal:
+				ctx.signal === NEVER_ABORTED ? local.signal : AbortSignal.any([ctx.signal, local.signal]),
+		};
+		const pending: Promise<Outcome<unknown, unknown>>[] = [];
+		for (const safe of safes) {
+			const out = exec(safe as AnySafe, child);
+			if (!isThenable(out)) {
+				// A synchronous child settled on this tick: it won, nothing else starts.
+				local.abort();
+				return out as Outcome<AllA<T>[number], AllE<T>>;
+			}
+			pending.push(out);
+		}
+		return new Promise<Outcome<AllA<T>[number], AllE<T>>>((resolve) => {
+			let settled = false;
+			const win = (outcome: Outcome<AllA<T>[number], AllE<T>>) => {
+				if (settled) return;
+				settled = true;
+				local.abort();
+				resolve(outcome);
+			};
+			for (const one of pending) {
+				one.then(
+					(outcome) => win(outcome as Outcome<AllA<T>[number], AllE<T>>),
+					(defect) => win(Outcome.die(defect)),
+				);
+			}
+		});
+	});
+
+/**
+ * Run `safe`, then always run `cleanup` with its outcome — on success, failure,
+ * defect and interrupt. A throwing cleanup turns a success into a defect and
+ * leaves any other outcome as it was, the same rule `Scope.close` applies.
+ */
+export const ensuring = <A, E, R>(
+	safe: Safe<A, E, R>,
+	cleanup: (exit: Outcome<A, E>) => void | PromiseLike<void>,
+): Safe<A, E, R> =>
+	new Safe<A, E, R>((ctx) => {
+		const settled = (outcome: Outcome<A, E>, defect?: { readonly value: unknown }) =>
+			defect !== undefined && outcome._tag === "success" ? Outcome.die(defect.value) : outcome;
+		const runCleanup = (outcome: Outcome<A, E>): Outcome<A, E> | Promise<Outcome<A, E>> => {
+			let done: void | PromiseLike<void>;
+			try {
+				done = cleanup(outcome);
+			} catch (defect) {
+				return settled(outcome, { value: defect });
+			}
+			return isThenable(done)
+				? Promise.resolve(done).then(
+						() => settled(outcome),
+						(defect) => settled(outcome, { value: defect }),
+					)
+				: settled(outcome);
+		};
+		const exit = exec(safe, ctx);
+		return isThenable(exit) ? exit.then(runCleanup) : runCleanup(exit);
+	});
 
 /**
  * Bound `safe` to `ms`. A timeout arrives as `interrupt` — the same arm a run

@@ -191,7 +191,7 @@ A throw anywhere in user code — a `Safe.try` body, a service `init`, an unmapp
 - `Safe.all([...])` runs concurrently. The first `fail` or `die` aborts the others.
 - `Safe.acquireRelease` and `Safe.scoped` register cleanup. Releases run last-in, first-out on success, fail, die and interrupt.
 
-## Scheduling: timeout, retry, forEach
+## Scheduling: timeout, retry, fan-out
 
 Three combinators, none of which needs a runtime — each is `exec` plus a signal, a
 timer or a batch:
@@ -201,12 +201,19 @@ Safe.timeout(safe, ms)                         // a timeout arrives as an interr
 Safe.timeout(safe, ms, () => "too_slow")       // …or as a typed failure
 Safe.retry(safe, { attempts: 3, delayMs: 50 }) // retries a fail; never a die or an interrupt
 Safe.forEach(items, (x) => work(x), { concurrency: 4 })
+Safe.race([primary, replica])                  // first to settle wins, losers abort
+Safe.sleep(50)                                 // an abort during the wait is an interrupt
+Safe.ensuring(safe, (exit) => log(exit))       // cleanup on success, fail, die, interrupt
 ```
 
 - `retry` gives each attempt its own scope, so a failed attempt's resources are
   released before the next one starts.
 - `forEach` without a limit runs everything at once (`Safe.all`); with one it runs
   sequential batches, so a failure stops every later batch.
+- `race` starts the children in order and keeps the first to settle — success or
+  failure. A synchronous child wins without starting the rest; the losers abort.
+- `ensuring` always runs, and a throwing cleanup turns a success into a defect while
+  leaving a failure alone — the same rule `Scope.close` applies.
 - A timeout interrupts at the next suspension point. A body that is entirely
   synchronous cannot be interrupted mid-flight — the same rule the run boundary follows.
 

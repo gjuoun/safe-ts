@@ -3,20 +3,35 @@
 	"version": "0.1.0",
 	"description": "One effect system for TypeScript without a fiber runtime: a lazy Safe<A, E, R> with one Safe.call boundary, Safe.try sequencing, a Scheduler for cancellation, a flat Outcome, class services and finalizers.",
 	"type": "module",
-	"private": true,
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
 	"exports": {
-		".": "./src/index.ts"
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
 	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"lint": "biome check .",
 		"format": "biome check --write .",
 		"test": "bun test",
+		"build": "bun run scripts/build.ts",
+		"prepublishOnly": "bun run check && bun run build",
+		"bench": "bun run bench/run.ts",
+		"bench:tax": "bun run bench/tax.ts",
 		"check": "bun run typecheck && bun run lint && bun run test"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.10",
 		"@types/bun": "latest",
+		"effect": "^4.1.4",
+		"neverthrow": "^8.2.0",
 		"typescript": "5.9.3"
 	}
 }

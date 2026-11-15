@@ -30,6 +30,109 @@ describe("Safe.timeout", () => {
 	});
 });
 
+describe("Safe.sleep", () => {
+	test("waits and succeeds with undefined", async () => {
+		expect(await run(Safe.sleep(1))).toEqual(Outcome.succeed(undefined));
+	});
+
+	test("a zero wait takes the sync path", async () => {
+		expect(await run(Safe.sleep(0))).toEqual(Outcome.succeed(undefined));
+	});
+
+	test("an abort during the wait is an interrupt", async () => {
+		expect(await run(Safe.sleep(50), { signal: AbortSignal.timeout(5) })).toEqual(
+			Outcome.interrupt(),
+		);
+	});
+});
+
+describe("Safe.race", () => {
+	const slow = () =>
+		Safe.call(async (s) => {
+			await s.sleep(50);
+			return "slow";
+		});
+
+	test("keeps the first to settle", async () => {
+		expect(await run(Safe.race([slow(), Safe.call(async () => "fast")]))).toEqual(
+			Outcome.succeed("fast"),
+		);
+	});
+
+	test("a synchronous child wins and nothing else starts", async () => {
+		let started = false;
+		const second = Safe.call(() => {
+			started = true;
+			return 2;
+		});
+		expect(await run(Safe.race([Safe.ok(1), second]))).toEqual(Outcome.succeed(1));
+		expect(started).toBe(false);
+	});
+
+	test("the first failure wins too", async () => {
+		const failing = Safe.call(
+			async () => {
+				throw new Error("boom");
+			},
+			() => "bad" as const,
+		);
+		expect(await run(Safe.race([failing, slow()]))).toEqual(Outcome.fail("bad"));
+	});
+
+	test("an empty race is a defect naming the rule", async () => {
+		const exit = await run(Safe.race([] as Safe<number, never, never>[]));
+		expect(exit._tag).toBe("die");
+	});
+});
+
+describe("Safe.ensuring", () => {
+	test("runs cleanup on success and on failure", async () => {
+		const seen: string[] = [];
+		await run(
+			Safe.ensuring(Safe.ok(1), (exit) => {
+				seen.push(exit._tag);
+			}),
+		);
+		await run(
+			Safe.ensuring(Safe.err("x" as const), (exit) => {
+				seen.push(exit._tag);
+			}),
+		);
+		expect(seen).toEqual(["success", "fail"]);
+	});
+
+	test("a throwing cleanup turns a success into a defect", async () => {
+		const defect = new Error("cleanup blew up");
+		const exit = await run(
+			Safe.ensuring(Safe.ok(1), () => {
+				throw defect;
+			}),
+		);
+		expect(exit).toEqual(Outcome.die(defect));
+	});
+
+	test("a throwing cleanup leaves a failure alone", async () => {
+		const exit = await run(
+			Safe.ensuring(Safe.err("x" as const), () => {
+				throw new Error("cleanup blew up");
+			}),
+		);
+		expect(exit).toEqual(Outcome.fail("x"));
+	});
+
+	test("an async cleanup is awaited before the outcome is returned", async () => {
+		let done = false;
+		const exit = await run(
+			Safe.ensuring(Safe.ok(1), async () => {
+				await Promise.resolve();
+				done = true;
+			}),
+		);
+		expect(exit).toEqual(Outcome.succeed(1));
+		expect(done).toBe(true);
+	});
+});
+
 describe("Safe.retry", () => {
 	test("retries a typed failure until it succeeds", async () => {
 		let attempts = 0;
