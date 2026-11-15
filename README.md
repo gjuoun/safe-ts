@@ -1,5 +1,7 @@
 # safe-ts
 
+[![npm version](https://img.shields.io/npm/v/@gjuoun/safe-ts.svg)](https://www.npmjs.com/package/@gjuoun/safe-ts)
+
 Typed errors and cancellable effects for TypeScript — without a fiber runtime.
 
 📖 [Docs](./docs/README.md) — [English](./docs/en/README.md) · [中文](./docs/zh/README.md) ·
