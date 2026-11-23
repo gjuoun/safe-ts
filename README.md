@@ -52,7 +52,10 @@ await Runtime.run(getUser("u1"));
   you declared.
 - **`Outcome`** — flat, four arms: `success`, `fail`, `die`, `interrupt`. `run` never
   throws and never rejects.
-- **Cancellation, scopes, `timeout`, `retry`, `all`, `race`, `forEach`** — built from
+- **`Safe.defer`** — one cleanup primitive: `defer(fn)` registers a finalizer on the
+  enclosing `Safe.try` scope; `defer(acquire, release)` runs acquire uninterruptibly
+  and pairs the resource atomically. `Pipe.defer` is the per-Safe twin.
+- **Cancellation, `timeout`, `retry`, `all`, `race`, `forEach`** — built from
   `exec` plus a signal, a timer or a batch. No fiber, no scheduler loop.
 
 </details>
@@ -64,18 +67,18 @@ win only when the min–max ranges do not overlap (`bun run bench`, ns/call):
 
 | scenario | safe-ts | Effect | ratio | verdict |
 |---|---|---|---|---|
-| success | 715 | 770 | 0.93 | noise |
-| recover | 893 | 956 | 0.93 | noise |
-| earlyExit | 714 | 713 | 1.00 | noise |
-| pure10 | 734 | 893 | 0.82 | safe-ts wins |
-| chain10 | 1176 | 1414 | 0.83 | safe-ts wins |
-| chain20 | 1859 | 2230 | 0.83 | safe-ts wins |
-| thrown | 1158 | 1341 | 0.86 | noise |
-| asyncInSync | 1039 | 1056 | 0.98 | noise |
-| concurrency | 1107 | 1221 | 0.91 | noise |
-| cleanup | 946 | 1120 | 0.84 | safe-ts wins |
-| retryFlaky | 2312 | 6418 | 0.36 | safe-ts wins |
-| retry_timeout | 13473 | 9689 | 1.39 | effect wins |
+| success | 640 | 670 | 0.95 | noise |
+| recover | 831 | 880 | 0.94 | noise |
+| earlyExit | 685 | 612 | 1.12 | effect wins |
+| pure10 | 665 | 789 | 0.84 | safe-ts wins |
+| chain10 | 1100 | 1224 | 0.90 | safe-ts wins |
+| chain20 | 1692 | 1888 | 0.90 | safe-ts wins |
+| thrown | 1071 | 1115 | 0.96 | noise |
+| asyncInSync | 1063 | 956 | 1.11 | effect wins |
+| concurrency | 997 | 1153 | 0.86 | safe-ts wins |
+| cleanup | 785 | 1092 | 0.72 | safe-ts wins |
+| retryFlaky | 2279 | 6019 | 0.38 | safe-ts wins |
+| retry_timeout | 12340 | 8694 | 1.42 | effect wins |
 
 `timeoutBound` and `delayWait` are skipped — they sleep on a real timer, so the wall
 clock measures the sleep, not the library. safe-ts wins on fixed costs (the run

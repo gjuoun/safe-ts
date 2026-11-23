@@ -212,8 +212,9 @@ export class Safe<A, E> {
 	/**
 	 * Fold `Safe → Safe` factories over `safe`, left to right: the one place
 	 * timeout, retry, defer, scoped, catchTag, uninterruptible and interruptible
-	 * — and any combinator you write — meet a Safe. Lazy: nothing runs until
-	 * `Runtime.run`.
+	 * — and any `Safe → Safe` you compose from them — meet a Safe. Lazy:
+	 * nothing runs until `Runtime.run`. (Ops that intercept the Outcome itself
+	 * need `exec`, which is internal — write those in the library, not userland.)
 	 *
 	 * Variadic is the form to reach for — `Safe.pipe(safe, timeout(2_000),
 	 * retry(policy))` — because the types flow one op at a time. A *single* op
