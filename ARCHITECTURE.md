@@ -84,3 +84,21 @@ comments — not `//`, not `/* */`, not `/** */`. Design intent lives in this
 file and `docs/en|zh/09-internals.md`. The lint rule exists because the
 compiler's scanner is the only thing that sees comments (trivia never reaches
 the AST a GritQL plugin would match against).
+
+## No `as` in userland
+
+`examples/` and `benchmark/` carry no type assertions; `rules/no-as.grit` makes
+`biome check` fail on one. Userland code reaches a type by decoding, not by
+asserting, and that is the only reading of the library the examples are allowed
+to teach. `as const` stays legal — it narrows literals. `src/` and `test/` are
+exempt by filename: the combinators' generics need assertions the compiler
+cannot be talked out of, and a cast that lives inside the library is a cost the
+library already documents, not a habit it exports.
+
+## `VERSION` reads `package.json`
+
+`src/index.ts` imports `../package.json` (with `{ type: "json" }`) and exports
+`VERSION = pkg.version`. The literal it replaced had drifted two releases behind
+while a smoke test pinned the stale value, so the fix is structural: one source,
+no second copy to forget. `resolveJsonModule` is on for `tsc`, and `bun build`
+inlines the JSON into the bundle.
