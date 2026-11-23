@@ -1,20 +1,27 @@
 # 7 · 性能，以及它适合什么场景
 
-数据来自仓库里的 `benchmark/`（`bun run bench`）：十个场景，两边都在每次调用时构建程序，
-五次试验，只有 min–max 区间不重叠才算"赢"。
+数据来自仓库里的 `benchmark/`（`bun run bench`）：十二个场景，两边都在每次调用时
+构建程序，五次试验，只有 min–max 区间不重叠才算"赢"。数字单位是 ns/call。
 
-| 场景 | safe-ts | Effect `runPromiseExit` | 结论 |
-|---|---|---|---|
-| 两步成功 | 567 ns | 697 ns | safe-ts |
-| 十步纯值 | 631 ns | 796 ns | safe-ts |
-| 抛异常 → 类型化错误 | 1009 ns | 1164 ns | safe-ts |
-| 四个并发子任务 | 921 ns | 1104 ns | safe-ts |
-| 十步边界 | 1070 ns | 1129 ns | 噪声 |
-| 二十步边界 | 1594 ns | 1587 ns | 噪声 |
-| 一个异步步骤 | 907 ns | 937 ns | 噪声 |
+| 场景 | safe-ts | Effect | 比值 | 结论 |
+|---|---|---|---|---|
+| success | 640 | 670 | 0.95 | 噪声 |
+| recover | 831 | 880 | 0.94 | 噪声 |
+| earlyExit | 685 | 612 | 1.12 | effect wins |
+| pure10 | 665 | 789 | 0.84 | safe-ts wins |
+| chain10 | 1100 | 1224 | 0.90 | safe-ts wins |
+| chain20 | 1692 | 1888 | 0.90 | safe-ts wins |
+| thrown | 1071 | 1115 | 0.96 | 噪声 |
+| asyncInSync | 1063 | 956 | 1.11 | effect wins |
+| concurrency | 997 | 1153 | 0.86 | safe-ts wins |
+| cleanup | 785 | 1092 | 0.72 | safe-ts wins |
+| retryFlaky | 2279 | 6019 | 0.38 | safe-ts wins |
+| retry_timeout | 12340 | 8694 | 1.42 | effect wins |
 
-**诚实的结论：** 固定成本赢（run 边界、纯值步骤、抛异常映射、有界并发），每步成本打平。
-Effect 的 fiber 派发和我们直接循环差不多快；它的 runtime 功能更多，启动也更贵。
+**诚实的结论：** 固定成本赢（run 边界、纯值步骤、有界并发、重试），输的地方正是
+Effect 的 fiber runtime 为我们没有的东西付了钱 —— 一个要活过 timeout 的重试，以及
+我们的 generator driver 不需要的 early-exit 路径。冷启动 import 13 ms 对 Effect 的
+76 ms；60 KB 源码，零运行时依赖。
 
 | | safe-ts | Effect |
 |---|---|---|
