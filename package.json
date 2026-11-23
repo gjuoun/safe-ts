@@ -53,7 +53,7 @@
 		"docs:check": "bun run scripts/doc-check.ts",
 		"bench": "bun run --cwd benchmark bench",
 		"bench:tax": "bun run --cwd benchmark bench:tax",
-		"check": "bun run typecheck && bun run lint && bun run test && bun run docs:check"
+		"check": "bun scripts/guardrail.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.10",
