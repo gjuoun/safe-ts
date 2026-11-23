@@ -98,9 +98,9 @@ export const build = {
 		}),
 	cleanup: () =>
 		Safe.try(function* () {
-			const handle = yield* Safe.call(() => ({ open: true })).pipe(
-				Pipe.acquireRelease(() => {}),
-				Pipe.scoped,
+			const handle = yield* Safe.defer(
+				Safe.call(() => ({ open: true })),
+				() => {},
 			);
 			return handle.open ? "open" : "closed";
 		}),

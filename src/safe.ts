@@ -130,9 +130,14 @@ export class Safe<A, E> {
 	}
 
 	/**
-	 * Sequence Safes in a generator body. `yield*` runs a Safe (or `get(C)`)
-	 * and stops the body on its failure; the body's return value is the success
-	 * value. Lazy: nothing runs until `run`, and each `run` runs the body again.
+	 * Sequence Safes in a generator body. `yield*` runs a Safe and stops the
+	 * body on its failure; the body's return value is the success value. Lazy:
+	 * nothing runs until `run`, and each `run` runs the body again.
+	 *
+	 * The body gets its own Scope: `Safe.defer` finalizers registered inside it
+	 * close when the body exits — success, failure, defect or interrupt — which
+	 * is the `using`-block boundary. To keep a resource alive past the body,
+	 * register it under an explicit `Pipe.scoped` outside.
 	 *
 	 * A plain `yield safe` is the hot-path form: the driver receives the Safe
 	 * directly instead of entering `yield*`'s delegation loop, which saves ~26 ns
@@ -142,20 +147,73 @@ export class Safe<A, E> {
 	static try<Y extends Yieldable, T>(body: () => Generator<Y, T, any>): Safe<T, YieldError<Y>>;
 	static try<Y extends Yieldable, T>(body: () => AsyncGenerator<Y, T, any>): Safe<T, YieldError<Y>>;
 	static try(body: () => AnyGenerator): Safe<unknown, unknown> {
-		const sequence = new Safe((ctx) => drive(body(), ctx));
+		const sequence = new Safe((ctx) => {
+			const scope = new Scope();
+			const exit = drive(body(), { ...ctx, scope });
+			return isThenable(exit) ? exit.then((e) => scope.close(e)) : scope.close(exit);
+		});
 		// `drive` converts every async rejection into an Outcome, so `exec` need
 		// not wrap the promise it returns (see `sealed`).
 		sequence.sealed = true;
 		return sequence;
 	}
 
+	/**
+	 * Register a finalizer on the current scope — the `useEffect` return: the
+	 * function runs when the enclosing `Safe.try` (or explicit `Pipe.scoped`,
+	 * retry attempt, or run) exits. Registration happens before the interrupt
+	 * check, so a finalizer is recorded even when the signal already fired.
+	 *
+	 * The two-argument form runs `acquire` uninterruptibly, then pairs the
+	 * resource with `release` atomically: either the resource was never taken,
+	 * or it was taken and its release is registered — no window where a resource
+	 * exists untracked.
+	 */
+	static defer(
+		release: (outcome: Outcome<unknown, unknown>) => void | PromiseLike<void>,
+	): Safe<void, never>;
+	static defer<A, E>(
+		acquire: Safe<A, E>,
+		release: (resource: A, outcome: Outcome<unknown, unknown>) => void | PromiseLike<void>,
+	): Safe<A, E>;
+	static defer<A, E>(
+		first: ((outcome: Outcome<unknown, unknown>) => void | PromiseLike<void>) | Safe<A, E>,
+		release?: (resource: A, outcome: Outcome<unknown, unknown>) => void | PromiseLike<void>,
+	): Safe<A, E> | Safe<void, never> {
+		if (first instanceof Safe) {
+			const acquire = first;
+			const rel = release as (
+				resource: A,
+				outcome: Outcome<unknown, unknown>,
+			) => void | PromiseLike<void>;
+			return new Safe<A, E>((ctx) => {
+				const exit = exec(acquire, {
+					...ctx,
+					signal: NEVER_ABORTED,
+					restoreSignal: ctx.signal,
+				});
+				const after = (out: Outcome<A, E>): Outcome<A, E> => {
+					if (out._tag !== "success") return out;
+					ctx.scope.add((scopeOutcome) => rel(out.value, scopeOutcome));
+					return ctx.signal.aborted ? Outcome.interrupt() : out;
+				};
+				return isThenable(exit) ? exit.then(after) : after(exit);
+			});
+		}
+		const cleanup = first;
+		return new Safe<void, never>((ctx) => {
+			ctx.scope.add(cleanup);
+			return ctx.signal.aborted ? Outcome.interrupt() : Outcome.succeed(undefined);
+		});
+	}
+
 	// --- The one entry for assembly ---
 
 	/**
 	 * Fold `Safe → Safe` factories over `safe`, left to right: the one place
-	 * timeout, retry, ensuring, scoped, acquireRelease, catchTag, provide,
-	 * uninterruptible and interruptible — and any combinator you write — meet a
-	 * Safe. Lazy: nothing runs until `Runtime.run`.
+	 * timeout, retry, defer, scoped, catchTag, uninterruptible and interruptible
+	 * — and any combinator you write — meet a Safe. Lazy: nothing runs until
+	 * `Runtime.run`.
 	 *
 	 * Variadic is the form to reach for — `Safe.pipe(safe, timeout(2_000),
 	 * retry(policy))` — because the types flow one op at a time. A *single* op

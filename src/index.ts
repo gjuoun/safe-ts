@@ -3,9 +3,9 @@
 // One effect system: a lazy `Safe<A, E>`. Constructors create it; `pipe`
 // folds the `Safe → Safe` ops over it; `Policy.*` names build the policy
 // `retry` consumes; `Runtime.run` executes it.
-//   Safe:      ok, err, call, try, all, allSettled, race, delay, forEach, pipe
-//   Pipe:      timeout, retry, ensuring, scoped, acquireRelease, catchTag,
-//              uninterruptible, interruptible — the Safe → Safe ops
+//   Safe:      ok, err, call, try, defer, all, allSettled, race, delay, forEach, pipe
+//   Pipe:      timeout, retry, defer, scoped, catchTag, uninterruptible,
+//              interruptible — the Safe → Safe ops
 //   Errors:    define, render
 //   Policy:    forever, spaced, exponential, min, max, while, modifyDelay, pipe
 //   Clocks:    real, manual

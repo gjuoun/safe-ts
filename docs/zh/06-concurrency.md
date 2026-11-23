@@ -171,6 +171,6 @@ declare const close: (r: { close(): void }) => void;
 Safe.pipe(critical, [Pipe.uninterruptible]);
 
 // 在被屏蔽的区域里，`interruptible` 还原真实 signal ——
-// `acquireRelease` 的 acquire 阶段是被屏蔽的，所以这就是 Effect 的 `restore`。
-Safe.pipe(acquire, Pipe.interruptible, Pipe.acquireRelease(close));
+// `Safe.defer` 的 acquire 阶段是被屏蔽的，所以这就是 Effect 的 `restore`。
+Safe.defer(acquire.pipe(Pipe.interruptible), close);
 ```

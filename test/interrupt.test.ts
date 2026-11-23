@@ -140,7 +140,7 @@ describe("uninterruptible / interruptible", () => {
 		expect(exit).toEqual(Outcome.interrupt());
 	});
 
-	test("ensuring still runs after a masked region reports interrupt", async () => {
+	test("defer still runs after a masked region reports interrupt", async () => {
 		const { Pipe } = await import("../src/index.ts");
 		const seen: string[] = [];
 		const region = Safe.call(async (s) => {
@@ -150,7 +150,7 @@ describe("uninterruptible / interruptible", () => {
 		const exit = await run(
 			region.pipe(
 				Pipe.uninterruptible,
-				Pipe.ensuring((e) => {
+				Pipe.defer((e) => {
 					seen.push(e._tag);
 				}),
 				Pipe.timeout(10),

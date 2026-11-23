@@ -11,9 +11,8 @@ test("entry exports the namespaces and the pipe ops", () => {
 	for (const name of [
 		"timeout",
 		"retry",
-		"ensuring",
+		"defer",
 		"scoped",
-		"acquireRelease",
 		"catchTag",
 		"uninterruptible",
 		"interruptible",
@@ -86,15 +85,7 @@ test("Safe exposes one answer per concern", () => {
 		expect(name in safe.Safe).toBe(true);
 	}
 	// The wrappers left Safe for pipe: no second spelling.
-	for (const name of [
-		"timeout",
-		"retry",
-		"ensuring",
-		"scoped",
-		"acquireRelease",
-		"catchTag",
-		"sleep",
-	]) {
+	for (const name of ["timeout", "retry", "scoped", "catchTag", "sleep"]) {
 		expect(name in safe.Safe).toBe(false);
 	}
 	// No Effect-shaped constructors left.

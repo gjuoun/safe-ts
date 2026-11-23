@@ -118,19 +118,19 @@ describe("Safe.race", () => {
 	});
 });
 
-describe("ensuring", () => {
+describe("defer (pipe)", () => {
 	test("runs cleanup on success and on failure", async () => {
 		const seen: string[] = [];
 		await run(
 			Safe.ok(1).pipe(
-				Pipe.ensuring((exit) => {
+				Pipe.defer((exit) => {
 					seen.push(exit._tag);
 				}),
 			),
 		);
 		await run(
 			Safe.err("x" as const).pipe(
-				Pipe.ensuring((exit) => {
+				Pipe.defer((exit) => {
 					seen.push(exit._tag);
 				}),
 			),
@@ -142,7 +142,7 @@ describe("ensuring", () => {
 		const defect = new Error("cleanup blew up");
 		const exit = await run(
 			Safe.ok(1).pipe(
-				Pipe.ensuring(() => {
+				Pipe.defer(() => {
 					throw defect;
 				}),
 			),
@@ -153,7 +153,7 @@ describe("ensuring", () => {
 	test("a throwing cleanup leaves a failure alone", async () => {
 		const exit = await run(
 			Safe.err("x" as const).pipe(
-				Pipe.ensuring(() => {
+				Pipe.defer(() => {
 					throw new Error("cleanup blew up");
 				}),
 			),
@@ -165,7 +165,7 @@ describe("ensuring", () => {
 		let done = false;
 		const exit = await run(
 			Safe.ok(1).pipe(
-				Pipe.ensuring(async () => {
+				Pipe.defer(async () => {
 					await Promise.resolve();
 					done = true;
 				}),
@@ -240,11 +240,9 @@ describe("retry", () => {
 		let released = 0;
 		let attempts = 0;
 		const withResource = Safe.try(function* () {
-			yield* Safe.ok("conn").pipe(
-				Pipe.acquireRelease(() => {
-					released++;
-				}),
-			);
+			yield* Safe.defer(Safe.ok("conn"), () => {
+				released++;
+			});
 			attempts++;
 			return yield* Safe.err("down" as const);
 		});
@@ -366,15 +364,17 @@ describe("Safe.pipe", () => {
 
 	test("a user-defined combinator joins the list", async () => {
 		const seen: string[] = [];
-		const tag = (name: string) => (safe: Safe<number, never>) =>
-			safe.pipe(
-				Pipe.ensuring(() => {
-					seen.push(name);
-				}),
-			);
+		const tag =
+			(name: string) =>
+			(safe: Safe<number, never>): Safe<number, never> =>
+				safe.pipe(
+					Pipe.defer(() => {
+						seen.push(name);
+					}),
+				);
 		const exit = await run(Safe.pipe(Safe.ok(1), tag("first"), tag("second")));
 		expect(exit).toEqual(Outcome.succeed(1));
-		// Ensuring order follows wrap order: second's cleanup runs first.
+		// Defer order follows wrap order: second's cleanup runs first.
 		expect(seen).toEqual(["first", "second"]);
 	});
 });
@@ -383,12 +383,9 @@ describe("scoped", () => {
 	test("a Pipe.scoped region closes before the outer scope", async () => {
 		const log: string[] = [];
 		const s = Safe.try(function* () {
-			yield* Safe.ok(undefined).pipe(
-				Pipe.acquireRelease(() => {
-					log.push("inner");
-				}),
-				Pipe.scoped,
-			);
+			yield* Safe.defer(Safe.ok(undefined), () => {
+				log.push("inner");
+			}).pipe(Pipe.scoped);
 			log.push("after");
 			return 0;
 		});
