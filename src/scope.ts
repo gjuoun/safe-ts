@@ -1,10 +1,3 @@
-// scope.ts — where finalizers live.
-//
-// A Scope collects finalizers and runs them once, last-added first, when it
-// closes. Every finalizer runs even if an earlier one throws. A finalizer's
-// throw is a defect: it turns a successful outcome into a `die`; an outcome that
-// already failed keeps its original cause. A scope with nothing registered
-// closes synchronously — no promise for the common case.
 import { Outcome } from "./outcome.ts";
 
 export type Finalizer = (outcome: Outcome<unknown, unknown>) => void | PromiseLike<void>;
@@ -32,7 +25,6 @@ export class Scope {
 	async #closeAsync<A, E>(outcome: Outcome<A, E>): Promise<Outcome<A, E>> {
 		let defect: { readonly value: unknown } | undefined;
 		for (const finalizer of this.#finalizers.reverse()) {
-			// Finalizer boundary: a throwing finalizer must not skip the rest.
 			try {
 				await finalizer(outcome);
 			} catch (thrown) {

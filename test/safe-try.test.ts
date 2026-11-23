@@ -7,6 +7,10 @@ const parse = (s: string): Safe<number, string> => {
 	return Number.isNaN(n) ? Safe.err(`nan: ${s}`) : Safe.ok(n);
 };
 
+const raise = (e: unknown): never => {
+	throw e;
+};
+
 describe("Safe.try (sync body)", () => {
 	test("is lazy", async () => {
 		let bodies = 0;
@@ -146,15 +150,12 @@ describe("Safe.try (async body)", () => {
 			try {
 				return yield* Safe.err("stopped");
 			} finally {
-				// biome-ignore lint/correctness/noUnsafeFinally: the throwing cleanup is the case under test.
-				throw new Error("cleanup blew up");
+				raise(new Error("cleanup blew up"));
 			}
 		});
 		expect(await run(s)).toEqual(Outcome.fail("stopped"));
 	});
 
-	// A success with no effects completes the delegation inline: no driver
-	// round-trip, no exec, no Outcome. Borrowed from neverthrow's Ok iterator.
 	test("yield* Safe.ok completes inline with its value", async () => {
 		let seen = 0;
 		const s = Safe.try(function* () {
@@ -167,8 +168,6 @@ describe("Safe.try (async body)", () => {
 		expect(seen).toBe(1);
 	});
 
-	// The hot-path form: a plain `yield` hands the Safe to the driver directly,
-	// so no `yield*` delegation frame is created per step (~26 ns per yield).
 	test("a plain yield body runs the same as yield*", async () => {
 		const s = Safe.try(function* () {
 			const a = (yield parse("1")) as number;
@@ -196,8 +195,7 @@ describe("Safe.try (async body)", () => {
 			try {
 				return yield* Safe.ok(1);
 			} finally {
-				// biome-ignore lint/correctness/noUnsafeFinally: the throwing cleanup is the case under test.
-				throw defect;
+				raise(defect);
 			}
 		});
 		expect(await run(s)).toEqual(Outcome.die(defect));

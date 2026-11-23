@@ -1,9 +1,3 @@
-// build.ts — one bundle, one declaration file.
-//
-// `bun build` produces dist/index.js (ESM, target node, no runtime deps) and
-// `dts-bundle-generator` folds the per-module declarations into a single
-// dist/index.d.ts, so a consumer resolves one file for values and one for types
-// — no relative `.ts` specifiers to rewrite, no per-module d.ts to ship.
 import { rm } from "node:fs/promises";
 
 const run = (args: string[]) => {

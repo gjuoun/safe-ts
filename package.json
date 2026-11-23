@@ -44,7 +44,7 @@
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",
-		"lint": "biome check .",
+		"lint": "biome check . && bun scripts/no-comments.ts",
 		"format": "biome check --write .",
 		"test": "bun test",
 		"build": "bun run scripts/build.ts",

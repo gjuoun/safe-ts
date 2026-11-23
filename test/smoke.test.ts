@@ -7,7 +7,7 @@ test("entry exports the namespaces and the pipe ops", () => {
 		expect(name in safe).toBe(true);
 	}
 	expect("Scheduler" in safe).toBe(false);
-	// The pipe ops live in the Pipe namespace — assemble through pipe, not Safe.
+
 	for (const name of [
 		"timeout",
 		"retry",
@@ -20,11 +20,11 @@ test("entry exports the namespaces and the pipe ops", () => {
 		expect(name in safe.Pipe).toBe(true);
 		expect(name in safe).toBe(false);
 	}
-	// The loose construction names are gone: each question has one place to live.
+
 	for (const name of ["defineErrors", "renderError", "makeRuntime", "get", "instance"]) {
 		expect(name in safe).toBe(false);
 	}
-	// The executor lives on Runtime: one-shot, factory, instance run.
+
 	expect("run" in safe.Safe).toBe(false);
 	for (const name of ["run"]) {
 		expect(name in safe.Runtime).toBe(true);
@@ -69,7 +69,6 @@ test("the eager second system is gone", () => {
 });
 
 test("Safe exposes one answer per concern", () => {
-	// Constructors create; everything else is a pipe op.
 	for (const name of [
 		"ok",
 		"err",
@@ -84,11 +83,11 @@ test("Safe exposes one answer per concern", () => {
 	]) {
 		expect(name in safe.Safe).toBe(true);
 	}
-	// The wrappers left Safe for pipe: no second spelling.
+
 	for (const name of ["timeout", "retry", "scoped", "catchTag", "sleep"]) {
 		expect(name in safe.Safe).toBe(false);
 	}
-	// No Effect-shaped constructors left.
+
 	for (const name of [
 		"promise",
 		"succeed",
@@ -100,7 +99,7 @@ test("Safe exposes one answer per concern", () => {
 	]) {
 		expect(name in safe.Safe).toBe(false);
 	}
-	// Combinators the generator already provides.
+
 	for (const name of ["map", "andThen", "catchTag"]) {
 		expect(name in safe.Safe.prototype).toBe(false);
 	}

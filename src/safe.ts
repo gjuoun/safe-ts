@@ -1,13 +1,3 @@
-// safe.ts — the core type: a lazy Safe<A, E>.
-//
-// A Safe is a description of work: nothing runs until `run`. It succeeds with
-// A and fails with a typed E. Dependencies are plain constructor arguments:
-// there is no requirement channel to thread, so a missing dependency is a
-// missing argument — a compile error at the call site.
-//
-// Every child Safe executes through `exec`, the one place that catches a throw
-// from a Safe.try body. `Safe.call` catches its own call, so
-// a throw nobody mapped is a `die`, never a typed `fail`.
 import { type AllA, type AllE, type AllSettledA, all, allSettled } from "./all.ts";
 import { type Clock, Clocks } from "./clock.ts";
 import { delay, type ForEachOptions, forEach, type RaceOptions, race } from "./combinators.ts";
@@ -16,65 +6,40 @@ import { isThenable, Outcome } from "./outcome.ts";
 import { CallScheduler, NEVER_ABORTED, type Scheduler } from "./scheduler.ts";
 import { Scope } from "./scope.ts";
 
-/** Runtime context threaded through every Safe of one run. Internal. */
 export interface Ctx {
 	readonly signal: AbortSignal;
-	/** The signal to restore inside `interruptible` when `signal` is masked. */
+
 	readonly restoreSignal: AbortSignal;
-	/** Report the interrupt when the body settles, not when the signal fires — race({awaitLosers}). */
+
 	readonly deferInterrupt?: boolean;
-	/** Where finalizers registered now are attached. */
+
 	readonly scope: Scope;
-	/** The run's time source: every timer (`delay`, `timeout`, `retry`) reads it. */
+
 	readonly clock: Clock;
 }
 
-/** A signal that never fires: used where work must not be interrupted. */
 export { NEVER_ABORTED } from "./scheduler.ts";
 
-/** A `Safe → Safe` transform — what `pipe` folds and every combinator returns. */
 export type SafeOp<S extends AnySafe = AnySafe> = (safe: S) => AnySafe;
 type AnySafe = Safe<any, any>;
 
 export class Safe<A, E> {
 	readonly _tag = "Safe" as const;
-	/** Phantom slots: they only carry the type parameters. */
+
 	declare readonly _A: A;
 	declare readonly _E: E;
 
-	/**
-	 * @internal Use `run`; call sites never invoke this directly.
-	 * A body returns an `Outcome` when it finished synchronously, and a promise
-	 * only when something inside it is actually async.
-	 */
 	constructor(readonly body: (ctx: Ctx) => Outcome<A, E> | Promise<Outcome<A, E>>) {}
 
-	/**
-	 * True when this body's promise already converts its own rejection into an
-	 * `Outcome` (`Safe.call` does), so `exec` need not add a pass-through hop.
-	 * @internal
-	 */
 	sealed = false;
 
-	/**
-	 * The `yield*` protocol: hand the Safe to the driver, complete with the value
-	 * it sends back. A plain iterator rather than a generator so `PureSafe` can
-	 * narrow it to a zero-yield completion.
-	 */
 	[Symbol.iterator](): Iterator<Safe<A, E>, A, any> {
 		return new SafeIterator(this);
 	}
 
-	/**
-	 * The same delegation for an `async function*` body: `yield*` prefers this
-	 * over `Symbol.iterator`, which spares it the async-from-sync conversion on
-	 * every hop (measured 425 → 354 ns per hop).
-	 */
 	[Symbol.asyncIterator](): AsyncIterator<Safe<A, E>, A, any> {
 		return new SafeAsyncIterator(this);
 	}
-
-	// --- Constructors ---
 
 	static ok<A>(value: A): Safe<A, never> {
 		return new PureSafe(value);
@@ -84,11 +49,6 @@ export class Safe<A, E> {
 		return new Safe(() => Outcome.fail(error));
 	}
 
-	/**
-	 * Run a function — sync or async — against the run's cancellation. Declare
-	 * `mapErr` and a throw or rejection becomes `fail(mapErr(thrown))`; omit it
-	 * and it is a defect (`die`). `fn` receives the run's Scheduler.
-	 */
 	static call<A>(fn: (scheduler: Scheduler) => A | PromiseLike<A>): Safe<Awaited<A>, never>;
 	static call<A, E>(
 		fn: (scheduler: Scheduler) => A | PromiseLike<A>,
@@ -113,14 +73,12 @@ export class Safe<A, E> {
 			try {
 				result = fn(scheduler);
 			} catch (thrown) {
-				// A throw nobody mapped is a defect, not a typed failure.
 				return scheduler.finish(
 					mapErr === undefined ? Outcome.die(thrown) : Outcome.fail(mapErr(thrown)),
 				);
 			}
 			if (!isThenable(result)) return scheduler.finish(Outcome.succeed(result as Awaited<A>));
-			// The rejection handler lives here, so this promise never rejects and
-			// `exec` can hand it straight to the run (see `sealed`).
+
 			return scheduler.settlePending(result as PromiseLike<Awaited<A>>, (s) =>
 				fromSettled(s, mapErr),
 			);
@@ -129,21 +87,6 @@ export class Safe<A, E> {
 		return call;
 	}
 
-	/**
-	 * Sequence Safes in a generator body. `yield*` runs a Safe and stops the
-	 * body on its failure; the body's return value is the success value. Lazy:
-	 * nothing runs until `run`, and each `run` runs the body again.
-	 *
-	 * The body gets its own Scope: `Safe.defer` finalizers registered inside it
-	 * close when the body exits — success, failure, defect or interrupt — which
-	 * is the `using`-block boundary. To keep a resource alive past the body,
-	 * register it under an explicit `Pipe.scoped` outside.
-	 *
-	 * A plain `yield safe` is the hot-path form: the driver receives the Safe
-	 * directly instead of entering `yield*`'s delegation loop, which saves ~26 ns
-	 * per yielded step. The value comes back as `TNext`, so it needs a cast —
-	 * `const n = (yield getUser(id)) as User`.
-	 */
 	static try<Y extends Yieldable, T>(body: () => Generator<Y, T, any>): Safe<T, YieldError<Y>>;
 	static try<Y extends Yieldable, T>(body: () => AsyncGenerator<Y, T, any>): Safe<T, YieldError<Y>>;
 	static try(body: () => AnyGenerator): Safe<unknown, unknown> {
@@ -152,23 +95,11 @@ export class Safe<A, E> {
 			const exit = drive(body(), { ...ctx, scope });
 			return isThenable(exit) ? exit.then((e) => scope.close(e)) : scope.close(exit);
 		});
-		// `drive` converts every async rejection into an Outcome, so `exec` need
-		// not wrap the promise it returns (see `sealed`).
+
 		sequence.sealed = true;
 		return sequence;
 	}
 
-	/**
-	 * Register a finalizer on the current scope — the `useEffect` return: the
-	 * function runs when the enclosing `Safe.try` (or explicit `Pipe.scoped`,
-	 * retry attempt, or run) exits. Registration happens before the interrupt
-	 * check, so a finalizer is recorded even when the signal already fired.
-	 *
-	 * The two-argument form runs `acquire` uninterruptibly, then pairs the
-	 * resource with `release` atomically: either the resource was never taken,
-	 * or it was taken and its release is registered — no window where a resource
-	 * exists untracked.
-	 */
 	static defer(
 		release: (outcome: Outcome<unknown, unknown>) => void | PromiseLike<void>,
 	): Safe<void, never>;
@@ -207,22 +138,6 @@ export class Safe<A, E> {
 		});
 	}
 
-	// --- The one entry for assembly ---
-
-	/**
-	 * Fold `Safe → Safe` factories over `safe`, left to right: the one place
-	 * timeout, retry, defer, scoped, catchTag, uninterruptible and interruptible
-	 * — and any `Safe → Safe` you compose from them — meet a Safe. Lazy:
-	 * nothing runs until `Runtime.run`. (Ops that intercept the Outcome itself
-	 * need `exec`, which is internal — write those in the library, not userland.)
-	 *
-	 * Variadic is the form to reach for — `Safe.pipe(safe, timeout(2_000),
-	 * retry(policy))` — because the types flow one op at a time. A *single* op
-	 * may also arrive in an array, `Safe.pipe(safe, [catchTag("not_found", h)])`.
-	 * Two or more ops in one array are deliberately not offered: TypeScript infers
-	 * a tuple's elements in a single pass, so a generic op there collapses to
-	 * `any` and the failure channel silently stops tracking.
-	 */
 	static pipe<A, E>(safe: Safe<A, E>): Safe<A, E>;
 	static pipe<A, E, T1 extends AnySafe>(safe: Safe<A, E>, op1: (safe: Safe<A, E>) => T1): T1;
 	static pipe<A, E, T1 extends AnySafe, T2 extends AnySafe>(
@@ -331,10 +246,7 @@ export class Safe<A, E> {
 		const ops = Array.isArray(first) ? first : first === undefined ? rest : [first, ...rest];
 		return ops.reduce<AnySafe>((acc, op) => op(acc), safe);
 	}
-	/**
-	 * The variadic twin of `Safe.pipe`: `fetch.pipe(timeout(2000), retry(p))` is
-	 * `Safe.pipe(fetch, timeout(2000), retry(p))` — same fold, common case.
-	 */
+
 	pipe(): Safe<A, E>;
 	pipe<T1 extends AnySafe>(op1: (safe: Safe<A, E>) => T1): T1;
 	pipe<T1 extends AnySafe, T2 extends AnySafe>(
@@ -420,28 +332,16 @@ export class Safe<A, E> {
 		return ops.reduce<AnySafe>((acc, op) => op(acc), this);
 	}
 
-	// --- Fan-out constructors (they take arrays, not a Safe to wrap) ---
-
-	/**
-	 * Run Safes concurrently, keeping order. The first fail or die aborts the
-	 * rest and becomes the result.
-	 */
 	static all<const T extends readonly Safe<any, any>[]>(safes: T): Safe<AllA<T>, AllE<T>> {
 		return all(safes);
 	}
 
-	/**
-	 * Run Safes concurrently, keeping order, and return every Outcome — the
-	 * per-input result with failures visible instead of the first non-success.
-	 * It never fails itself: its `E` is `never`.
-	 */
 	static allSettled<const T extends readonly Safe<any, any>[]>(
 		safes: T,
 	): Safe<AllSettledA<T>, never> {
 		return allSettled(safes);
 	}
 
-	/** Keep the first Safe to settle; the losers are aborted. */
 	static race<const T extends readonly Safe<any, any>[]>(
 		safes: T,
 		options?: RaceOptions,
@@ -449,12 +349,10 @@ export class Safe<A, E> {
 		return race(safes, options);
 	}
 
-	/** Wait `ms`; an abort during the wait is an interrupt. */
 	static delay(ms: number): Safe<void, never> {
 		return delay(ms);
 	}
 
-	/** Run one Safe per item, in order, with a sliding `concurrency` window. */
 	static forEach<A, B, E>(
 		items: readonly A[],
 		f: (item: A, index: number) => Safe<B, E>,
@@ -464,15 +362,6 @@ export class Safe<A, E> {
 	}
 }
 
-// --- catchTag, a combinator like the rest ---
-
-/**
- * Recover from one typed error variant by its key. A `Safe → Safe` factory for
- * `pipe`: `Safe.pipe(find("u2"), [catchTag("not_found", h)])`. The handler gets
- * the factory's payload (annotate it); defects pass through. A code the target
- * cannot produce compiles but never matches — pipe-position inference cannot
- * see the target's E, the data-last cost Effect's `catchTag` shares.
- */
 export function catchTag<const K extends string, B, E2 = never>(
 	code: K,
 	f: (payload: any) => Safe<B, E2>,
@@ -492,18 +381,6 @@ export function catchTag<const K extends string, B, E2 = never>(
 		});
 }
 
-// --- Execution ---
-
-/**
- * A success with no effects: it cannot fail, needs no `Ctx` and cannot be
- * interrupted, so `yield* Safe.ok(x)` completes inline instead of
- * round-tripping through the driver (11 ns per step, measured).
- *
- * Borrowed from neverthrow, whose `Ok` iterator returns its value without
- * yielding — the cheap half of its `safeTry` design. Its `Err` half is not
- * borrowable: neverthrow surfaces an Err by leaving the body suspended, so a
- * `finally` never runs; here the driver closes the body and cleanup happens.
- */
 class PureSafe<A> extends Safe<A, never> {
 	constructor(readonly value: A) {
 		super(() => Outcome.succeed(value));
@@ -518,7 +395,6 @@ class PureSafe<A> extends Safe<A, never> {
 	}
 }
 
-/** The async twin of `SafeIterator`: an async body's `yield*` lands here. */
 class SafeAsyncIterator<A, E> implements AsyncIterator<Safe<A, E>, A, any> {
 	#yielded = false;
 	constructor(private readonly safe: Safe<A, E>) {}
@@ -536,7 +412,6 @@ class SafeAsyncIterator<A, E> implements AsyncIterator<Safe<A, E>, A, any> {
 	}
 }
 
-/** One yield: the Safe goes out, the driver's value comes back. */
 class SafeIterator<A, E> implements Iterator<Safe<A, E>, A, any> {
 	#yielded = false;
 	constructor(private readonly safe: Safe<A, E>) {}
@@ -554,7 +429,6 @@ class SafeIterator<A, E> implements Iterator<Safe<A, E>, A, any> {
 	}
 }
 
-/** The async twin of `PureIterator`: still zero-yield. */
 class PureAsyncIterator<A> implements AsyncIterator<Safe<A, never>, A, any> {
 	constructor(private readonly value: A) {}
 
@@ -567,7 +441,6 @@ class PureAsyncIterator<A> implements AsyncIterator<Safe<A, never>, A, any> {
 	}
 }
 
-/** Completes the delegation on the first `next()`: no yield, no result churn. */
 class PureIterator<A> implements Iterator<Safe<A, never>, A, any> {
 	constructor(private readonly value: A) {}
 
@@ -580,25 +453,17 @@ class PureIterator<A> implements Iterator<Safe<A, never>, A, any> {
 	}
 }
 
-/** A generator function belongs to `Safe.try`, not `Safe.call`. */
 const isGeneratorFunction = (fn: unknown): boolean => {
 	const tag = Object.prototype.toString.call(fn);
 	return tag === "[object GeneratorFunction]" || tag === "[object AsyncGeneratorFunction]";
 };
 
-/** A catalog error is a one-key record: the tag is the key, not a field. */
 export const hasTag = (e: unknown, code: string): boolean =>
 	typeof e === "object" && e !== null && code in e;
 
-/** The arm's value: what the factory returned. */
 export const payloadOf = (e: unknown, code: string): unknown =>
 	typeof e === "object" && e !== null ? (e as Record<string, unknown>)[code] : undefined;
 
-/**
- * Execute one Safe in a context. Together with `Safe.call`, one of the two
- * places a throw is classified: anything that escapes a body or a service
- * `init` is a defect. An already-aborted signal stops work before it starts.
- */
 export const exec = <A, E>(safe: Safe<A, E>, ctx: Ctx): Outcome<A, E> | Promise<Outcome<A, E>> => {
 	if (ctx.signal.aborted) return Outcome.interrupt();
 	let out: Outcome<A, E> | Promise<Outcome<A, E>>;
@@ -607,8 +472,7 @@ export const exec = <A, E>(safe: Safe<A, E>, ctx: Ctx): Outcome<A, E> | Promise<
 	} catch (defect) {
 		return Outcome.die(defect);
 	}
-	// A rejection is a defect, exactly as a throw from the body is. A sealed body
-	// already did that conversion, so wrapping it again is a wasted hop.
+
 	if (!isThenable(out)) return out;
 	return safe.sealed
 		? out
@@ -618,7 +482,6 @@ export const exec = <A, E>(safe: Safe<A, E>, ctx: Ctx): Outcome<A, E> | Promise<
 			);
 };
 
-/** What `Scheduler.settle` reported, in `Safe.call`'s vocabulary. */
 const fromSettled = <A, E>(
 	settled: Outcome<A, unknown>,
 	mapErr?: (thrown: unknown) => E,
@@ -638,24 +501,18 @@ const fromSettled = <A, E>(
 };
 
 export interface RunOptions {
-	/** Aborting this signal interrupts the run. */
 	readonly signal?: AbortSignal;
-	/** The run's time source; `Clocks.manual()` makes every timer testable. */
+
 	readonly clock?: Clock;
 }
 
-/**
- * Run a Safe. Never rejects:
- * every outcome, including defects, is an Outcome.
- */
 export const run = async <A, E>(
 	safe: Safe<A, E>,
 	options: RunOptions = {},
 ): Promise<Outcome<A, E>> => {
 	const root = new Scope();
 	const signal = options.signal ?? NEVER_ABORTED;
-	// No signal given: a shared, never-aborted one. A fresh AbortController per
-	// run costs ~134 ns and is indistinguishable from this (nothing can abort it).
+
 	const exit = exec(safe, {
 		signal,
 		restoreSignal: signal,
@@ -665,9 +522,6 @@ export const run = async <A, E>(
 	return isThenable(exit) ? exit.then((o) => root.close(o)) : Promise.resolve(root.close(exit));
 };
 
-// --- Sequencing ---
-
-/** Anything `yield*`-able inside `Safe.try`. */
 export type Yieldable = Safe<any, any>;
 
 export type YieldError<Y> = Y extends Safe<any, infer E> ? E : never;
@@ -676,12 +530,6 @@ export type AnyGenerator =
 	| Generator<unknown, unknown, unknown>
 	| AsyncGenerator<unknown, unknown, unknown>;
 
-/**
- * One driver for both kinds. The sync loop handles a generator whose steps all
- * resolve to values — the common case — without allocating a promise per step;
- * the moment a step is a promise (an async generator) the
- * async continuation takes over and the rest of the body runs there.
- */
 export const drive = (
 	it: AnyGenerator,
 	ctx: Ctx,
@@ -689,7 +537,7 @@ export const drive = (
 	let input: unknown;
 	for (;;) {
 		if (ctx.signal.aborted) return close(it, Outcome.interrupt());
-		// A throw from the body propagates to `exec`, which makes it a `die`.
+
 		const step = it.next(input);
 		if (isThenable(step)) return driveFromStep(it, ctx, step);
 		if (step.done) return Outcome.succeed(step.value);
@@ -700,11 +548,6 @@ export const drive = (
 	}
 };
 
-/**
- * The sync loop, entered once a promise has already resolved: every suspension
- * resumes here rather than in an `async` function, which is how Effect's fiber
- * avoids paying for an extra promise per resumption.
- */
 const driveResolved = (
 	it: AnyGenerator,
 	ctx: Ctx,
@@ -723,7 +566,6 @@ const driveResolved = (
 	}
 };
 
-/** Continue in async mode: the next generator step was a promise. */
 const driveFromStep = (
 	it: AnyGenerator,
 	ctx: Ctx,
@@ -737,11 +579,10 @@ const driveFromStep = (
 				? driveFromYield(it, ctx, resolved)
 				: driveResolved(it, ctx, resolved);
 		},
-		// A rejecting generator step is a defect, exactly as a sync throw is.
+
 		(defect) => Outcome.die(defect),
 	);
 
-/** Continue in async mode: a yielded value resolved to a promise. */
 const driveFromYield = (
 	it: AnyGenerator,
 	ctx: Ctx,
@@ -752,12 +593,6 @@ const driveFromYield = (
 		(defect) => Outcome.die(defect),
 	);
 
-/**
- * Close a suspended generator so its `finally` blocks run. A throw from one is
- * captured and applied only when the outcome was a success — the rule
- * `Scope.close` already uses, so a body that failed keeps its declared error
- * instead of having it overwritten by the cleanup.
- */
 const close = (
 	it: AnyGenerator,
 	outcome: Outcome<unknown, unknown>,
@@ -777,7 +612,6 @@ const close = (
 	return closedOutcome(outcome, defect);
 };
 
-/** The async continuation of `close`: an async generator's `return` is a promise. */
 const closeAsync = async (
 	it: AnyGenerator,
 	outcome: Outcome<unknown, unknown>,
@@ -795,18 +629,12 @@ const closeAsync = async (
 	return closedOutcome(outcome, defect);
 };
 
-/** A throwing cleanup is a defect only when the outcome was a success. */
 const closedOutcome = (
 	outcome: Outcome<unknown, unknown>,
 	defect: { readonly value: unknown } | undefined,
 ): Outcome<unknown, unknown> =>
 	defect !== undefined && outcome._tag === "success" ? Outcome.die(defect.value) : outcome;
 
-/**
- * A yielded value resolves to the Outcome that ends the body when it is not a
- * success; a success continues with `out.value`. Returning the Outcome itself
- * (rather than a wrapper object) keeps one allocation out of every yield.
- */
 const resolveYield = (
 	y: unknown,
 	ctx: Ctx,

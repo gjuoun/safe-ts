@@ -1,6 +1,3 @@
-// doc-check.ts — every ```ts block in docs/ must compile against the library.
-// The docs import from "safe-ts"; here that resolves to src/index.ts, so a block
-// that drifts from the real API fails the check instead of misleading a reader.
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

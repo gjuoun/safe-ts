@@ -10,6 +10,7 @@
 6. [并发、超时、重试、取消](./06-concurrency.md)
 7. [性能，以及适合的场景](./07-performance.md)
 8. [Scheduler 与取消：实用指南](./08-scheduler.md)
+9. [内部实现：原本写在代码注释里的语义](./09-internals.md)
 
 English: [../en/README.md](../en/README.md)。参考资料在
 [README](../../README.md) 与 [examples](../../examples/)；实测数据在

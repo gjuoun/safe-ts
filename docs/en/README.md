@@ -11,6 +11,7 @@ the library (`bun run docs:check`).
 6. [Concurrency, timeouts, retries, cancellation](./06-concurrency.md)
 7. [Performance, and where this fits](./07-performance.md)
 8. [Scheduler and cancellation: practical guide](./08-scheduler.md)
+9. [Internals: the semantics the code used to carry in comments](./09-internals.md)
 
 Chinese version: [../zh/README.md](../zh/README.md). Reference material lives in the
 [README](../../README.md) and the [examples](../../examples/); measured numbers in

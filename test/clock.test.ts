@@ -3,7 +3,6 @@ import { Clocks } from "../src/clock.ts";
 import { Outcome } from "../src/outcome.ts";
 import { run, Safe } from "../src/safe.ts";
 
-/** Yield to the microtask queue once, so a resolved waiter can run its then. */
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("Clocks.manual", () => {

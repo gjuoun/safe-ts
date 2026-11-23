@@ -47,7 +47,7 @@ describe("interruption", () => {
 			}
 		});
 		expect(await run(s, { signal: ac.signal })).toEqual(Outcome.interrupt());
-		// The driver checks the signal before resuming the body, so "b" never runs.
+
 		expect(seen).toEqual(["a", "finally"]);
 	});
 
@@ -169,7 +169,7 @@ describe("uninterruptible / interruptible", () => {
 				await s.sleep(30);
 				outer = 1;
 			});
-			// The inner region sees the real signal again.
+
 			yield* Safe.call(async (s) => {
 				await s.sleep(30);
 				inner = 1;
@@ -177,8 +177,7 @@ describe("uninterruptible / interruptible", () => {
 			return "done";
 		});
 		const exit = await run(region.pipe(Pipe.uninterruptible).pipe(Pipe.timeout(100)));
-		// Both waits finished: outer was masked, inner re-exposed and the run
-		// itself was never aborted — 100 > 30 + 30 + margin.
+
 		expect(outer).toBe(1);
 		expect(inner).toBe(1);
 		expect(exit).toEqual(Outcome.succeed("done"));
@@ -195,8 +194,7 @@ describe("uninterruptible / interruptible", () => {
 			}).pipe(Pipe.interruptible);
 		});
 		const exit = await run(region.pipe(Pipe.uninterruptible).pipe(Pipe.timeout(10)));
-		// The inner wait was Pipe.interruptible again: the deadline cut it, the mask
-		// still reported the interrupt when the region exited.
+
 		expect(inner).toBe(0);
 		expect(exit).toEqual(Outcome.interrupt());
 	});

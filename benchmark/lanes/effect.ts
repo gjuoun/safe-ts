@@ -1,6 +1,3 @@
-// The Effect lane: the same fourteen scenarios, built per call, measured
-// through its own Exit entry (runPromiseExit / runSyncExit) — not wrapped in
-// Effect.result.
 import { Effect } from "effect";
 
 const STORE: Record<string, string> = { u1: "ada" };
