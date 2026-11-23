@@ -4,6 +4,7 @@
 		"ignoreUnknown": true,
 		"includes": ["**/*.ts", "**/*.json", "!!**/node_modules", "!!dist"]
 	},
+	"plugins": ["rules/no-as.grit"],
 	"linter": {
 		"enabled": true,
 		"rules": {

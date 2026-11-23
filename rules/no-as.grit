@@ -1,0 +1,7 @@
+language js
+
+`$x as $T` where {
+  not ($T <: "const"),
+  not ($filename <: r".*/(src|test)/.*"),
+  register_diagnostic(span=$x, message="no-as: type assertion — userland code uses typed boundaries; src/ and test/ are exempt")
+}

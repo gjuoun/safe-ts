@@ -1,8 +1,13 @@
 import { Effect } from "effect";
 
 const STORE: Record<string, string> = { u1: "ada" };
+const decodeUser = (raw: unknown): { name?: string } => {
+	if (typeof raw !== "object" || raw === null) return {};
+	const name = "name" in raw ? raw.name : undefined;
+	return typeof name === "string" ? { name } : {};
+};
 const parse = (s: string) =>
-	Effect.try({ try: () => JSON.parse(s) as { name?: string }, catch: () => "bad_json" });
+	Effect.try({ try: () => decodeUser(JSON.parse(s)), catch: () => "bad_json" });
 const lookup = (id: string) => (id in STORE ? Effect.succeed(STORE[id]) : Effect.fail("not_found"));
 const step = (n: number) => Effect.sync(() => n);
 const boom = () =>
@@ -79,17 +84,17 @@ export const build = {
 		}),
 	concurrency: () =>
 		Effect.gen(function* () {
-			const xs = (yield* Effect.all([step(1), step(2), step(3), step(4)])) as number[];
+			const xs: number[] = yield* Effect.all([step(1), step(2), step(3), step(4)]);
 			return String(xs.reduce((a, b) => a + b, 0));
 		}),
 	cleanup: () =>
 		Effect.gen(function* () {
-			const handle = (yield* Effect.scoped(
+			const handle: { open: boolean } = yield* Effect.scoped(
 				Effect.acquireRelease(
 					Effect.sync(() => ({ open: true })),
 					() => Effect.void,
 				),
-			)) as { open: boolean };
+			);
 			return handle.open ? "open" : "closed";
 		}),
 	timeoutBound: () => Effect.sleep("50 millis").pipe(Effect.timeout("1 seconds")),
@@ -103,13 +108,17 @@ export const build = {
 } as const;
 
 export type Name = keyof typeof build;
-export const names = Object.keys(build) as Name[];
+export const names = Object.keys(build).filter((key): key is Name => key in build);
 
-type Exit = { _tag: string; value?: unknown; cause?: unknown };
-const toOutcome = (x: Exit) =>
-	x._tag === "Success" ? { _tag: "success", value: x.value } : { _tag: "fail", error: x.cause };
+type OutcomeView = { _tag: string; value?: unknown };
+const toOutcome = (raw: unknown): OutcomeView => {
+	if (typeof raw !== "object" || raw === null) return { _tag: "fail" };
+	const tag = "_tag" in raw ? raw._tag : undefined;
+	if (tag !== "Success") return { _tag: "fail" };
+	return { _tag: "success", value: "value" in raw ? raw.value : undefined };
+};
 
-export const run = async (n: Name) => toOutcome((await Effect.runPromiseExit(build[n]())) as Exit);
-export const runSync = (n: Name) => toOutcome(Effect.runSyncExit(build[n]()) as Exit);
+export const run = async (n: Name) => toOutcome(await Effect.runPromiseExit(build[n]()));
+export const runSync = (n: Name) => toOutcome(Effect.runSyncExit(build[n]()));
 export const show = (o: { _tag: string; value?: unknown }) =>
 	o._tag === "success" ? `ok:${String(o.value)}` : "fail";

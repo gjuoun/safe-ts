@@ -5,9 +5,16 @@ interface Config {
 	name: string;
 }
 
+const decodeConfig = (raw: unknown): Config => {
+	if (typeof raw !== "object" || raw === null) throw new Error("bad_json");
+	const name = "name" in raw ? raw.name : undefined;
+	if (typeof name !== "string") throw new Error("bad_json");
+	return { name };
+};
+
 const parseJson = (text: string) =>
 	Safe.call(
-		() => JSON.parse(text) as Config,
+		() => decodeConfig(JSON.parse(text)),
 		(): "bad_json" => "bad_json",
 	);
 

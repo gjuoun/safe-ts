@@ -4,7 +4,8 @@ import * as st from "./lanes/safe.ts";
 const isThenable = (v: unknown) =>
 	v !== null &&
 	(typeof v === "object" || typeof v === "function") &&
-	typeof (v as { then?: unknown }).then === "function";
+	"then" in v &&
+	typeof v.then === "function";
 
 const TRIALS = Number(process.env.TRIALS ?? 5);
 const N = Number(process.env.N ?? 20000);
@@ -16,7 +17,7 @@ const UNTIMED = new Set(["timeoutBound", "delayWait"]);
 
 let mismatches = 0;
 for (const name of SCENARIOS) {
-	const safe = st.show((await st.run(name)) as never);
+	const safe = st.show(await st.run(name));
 	const effect = ef.show(await ef.run(name));
 	if (safe !== effect) {
 		mismatches++;
@@ -49,9 +50,9 @@ const measure = async (fn: () => unknown) => {
 const median = (xs: number[]) => {
 	const s = [...xs].sort((a, b) => a - b);
 	const mid = Math.floor(s.length / 2);
-	return s.length % 2 === 1
-		? (s[mid] as number)
-		: ((s[mid - 1] as number) + (s[mid] as number)) / 2;
+	const upper = s[mid] ?? 0;
+	const lower = s[mid - 1] ?? upper;
+	return s.length % 2 === 1 ? upper : (lower + upper) / 2;
 };
 const fmt = (v: number) => v.toFixed(0);
 

@@ -13,9 +13,15 @@ const show = <A, E>(exit: Outcome<A, E>): string => {
 	}
 };
 
+const decodeUser = (raw: unknown): { name?: string } => {
+	if (typeof raw !== "object" || raw === null) return {};
+	const name = "name" in raw ? raw.name : undefined;
+	return typeof name === "string" ? { name } : {};
+};
+
 const parseJson = (text: string) =>
 	Safe.call(
-		() => JSON.parse(text) as { name?: string },
+		() => decodeUser(JSON.parse(text)),
 		(): "bad_json" => "bad_json",
 	);
 
@@ -27,7 +33,13 @@ console.log(show(await Runtime.run(Safe.call(() => JSON.parse("{")))));
 const failing = (): Promise<string> => Promise.reject(new Error("ECONNREFUSED"));
 
 console.log(
-	show(await Runtime.run(Safe.call(failing, (reason): string => (reason as Error).message))),
+	show(
+		await Runtime.run(
+			Safe.call(failing, (reason): string =>
+				reason instanceof Error ? reason.message : String(reason),
+			),
+		),
+	),
 );
 console.log(show(await Runtime.run(Safe.call(failing))));
 

@@ -7,9 +7,14 @@ const e = Errors.define({
 });
 
 const STORE: Record<string, string> = { u1: "ada" };
+const decodeUser = (raw: unknown): { name?: string } => {
+	if (typeof raw !== "object" || raw === null) return {};
+	const name = "name" in raw ? raw.name : undefined;
+	return typeof name === "string" ? { name } : {};
+};
 const parse = (s: string) =>
 	Safe.call(
-		() => JSON.parse(s) as { name?: string },
+		() => decodeUser(JSON.parse(s)),
 		() => e.bad_json(),
 	);
 const lookup = (id: string) => (id in STORE ? Safe.ok(STORE[id]) : Safe.err(e.not_found(id)));
@@ -122,7 +127,7 @@ export const build = {
 } as const;
 
 export type Name = keyof typeof build;
-export const names = Object.keys(build) as Name[];
+export const names = Object.keys(build).filter((key): key is Name => key in build);
 export const run = (n: Name) => Runtime.run(build[n]());
 export const show = (o: { _tag: string; value?: unknown }) =>
 	o._tag === "success" ? `ok:${String(o.value)}` : "fail";

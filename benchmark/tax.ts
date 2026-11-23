@@ -5,7 +5,7 @@ const targets = [
 
 const median = (xs: number[]) => {
 	const s = [...xs].sort((a, b) => a - b);
-	return s[Math.floor(s.length / 2)] as number;
+	return s[Math.floor(s.length / 2)] ?? 0;
 };
 
 for (const [name, spec] of targets) {
