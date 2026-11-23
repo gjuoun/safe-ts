@@ -100,7 +100,7 @@ console.log((await pending)._tag); // "interrupt"
 
 这个动作是同步的，**不是**通用清理钩子。如果它在取消进行中的调用时抛异常，
 结果是 `die`，不会悄悄吞掉清理缺陷。成功或失败时也需要清理、或者清理需要等待完成时，
-使用 [`Pipe.ensuring` 或 `Pipe.acquireRelease`](./05-cleanup.md)。
+使用 [`Safe.defer` 或 `Pipe.defer`](./05-cleanup.md)。
 
 ## 3. 五个并发请求，其中一个失败
 

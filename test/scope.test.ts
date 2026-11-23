@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { Pipe } from "../src/index.ts";
 import { Outcome } from "../src/outcome.ts";
 import { run, Safe } from "../src/safe.ts";
 
 const resource = (name: string, log: string[]) =>
-	Safe.call(() => name).pipe(
-		Pipe.acquireRelease((n: string) => {
+	Safe.defer(
+		Safe.call(() => name),
+		(n: string) => {
 			log.push(n);
-		}),
+		},
 	);
 
 describe("finalizers run LIFO on fail and interrupt", () => {
@@ -61,11 +61,9 @@ describe("finalizers run LIFO on fail and interrupt", () => {
 	test("release receives the outcome", async () => {
 		const seen: string[] = [];
 		const s = Safe.try(function* () {
-			yield* Safe.ok(1).pipe(
-				Pipe.acquireRelease((_r: number, outcome) => {
-					seen.push(outcome._tag);
-				}),
-			);
+			yield* Safe.defer(Safe.ok(1), (_r: number, outcome) => {
+				seen.push(outcome._tag);
+			});
 			return yield* Safe.err("x");
 		});
 		await run(s);
@@ -77,27 +75,28 @@ describe("scoped", () => {
 	test("closes the inner scope before the outer continues", async () => {
 		const log: string[] = [];
 		const s = Safe.try(function* () {
-			yield* resource("inner", log).pipe(Pipe.scoped);
-			log.push("after-scoped");
-			yield* Safe.ok(undefined).pipe(
-				Pipe.acquireRelease(() => {
-					log.push("outer");
-				}),
-			);
+			yield* Safe.try(function* () {
+				yield* Safe.defer(Safe.ok("inner"), (n: string) => {
+					log.push(n);
+				});
+				return 0;
+			});
+			log.push("after-inner");
+			yield* Safe.defer(Safe.ok(undefined), () => {
+				log.push("outer");
+			});
 			return 0;
 		});
 		await run(s);
-		expect(log).toEqual(["inner", "after-scoped", "outer"]);
+		expect(log).toEqual(["inner", "after-inner", "outer"]);
 	});
 
 	test("a throwing finalizer turns success into die", async () => {
 		const defect = new Error("close failed");
 		const s = Safe.try(function* () {
-			yield* Safe.ok(undefined).pipe(
-				Pipe.acquireRelease(() => {
-					throw defect;
-				}),
-			);
+			yield* Safe.defer(Safe.ok(undefined), () => {
+				throw defect;
+			});
 			return 1;
 		});
 		expect(await run(s)).toEqual(Outcome.die(defect));
@@ -106,15 +105,15 @@ describe("scoped", () => {
 	test("acquire finishes even if the run is aborted mid-acquire", async () => {
 		const log: string[] = [];
 		const ac = new AbortController();
-		const acquire = Safe.call(async () => {
-			ac.abort();
-			await new Promise((r) => setTimeout(r, 5));
-			return "conn";
-		});
-		const s = acquire.pipe(
-			Pipe.acquireRelease((c: string) => {
-				log.push(`released ${c}`);
+		const s = Safe.defer(
+			Safe.call(async () => {
+				ac.abort();
+				await new Promise((r) => setTimeout(r, 5));
+				return "conn";
 			}),
+			(c: string) => {
+				log.push(`released ${c}`);
+			},
 		);
 		expect(await run(s, { signal: ac.signal })).toEqual(Outcome.interrupt());
 		expect(log).toEqual(["released conn"]);

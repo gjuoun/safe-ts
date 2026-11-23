@@ -180,6 +180,6 @@ declare const close: (r: { close(): void }) => void;
 Safe.pipe(critical, [Pipe.uninterruptible]);
 
 // Inside a masked region, `interruptible` restores the real signal —
-// `acquireRelease`'s acquire is masked, so this is Effect's `restore`.
-Safe.pipe(acquire, Pipe.interruptible, Pipe.acquireRelease(close));
+// `Safe.defer`'s acquire is masked, so this is Effect's `restore`.
+Safe.defer(acquire.pipe(Pipe.interruptible), close);
 ```

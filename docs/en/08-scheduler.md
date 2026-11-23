@@ -109,7 +109,7 @@ The action is synchronous and is **not** a general cleanup hook. If it throws
 while cancelling an in-flight call, the call ends as `die` rather than silently
 swallowing the cleanup defect.
 For cleanup that must also happen on success or failure, or must be awaited,
-use [`Pipe.ensuring` or `Pipe.acquireRelease`](./05-cleanup.md).
+use [`Safe.defer` or `Pipe.defer`](./05-cleanup.md).
 
 ## 3. One failed request cancels four siblings
 

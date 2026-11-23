@@ -5,7 +5,7 @@
 // deadline, a per-request scope — is a `Pipe.*` op in one list. The retry
 // policy is itself a value assembled in `Policy.*`. No statics, no second
 // spelling: `Safe.pipe` folds `Safe → Safe`, `Policy.pipe` folds `Policy →
-// Policy`, and cleanup (`acquireRelease`, `ensuring`, `scoped`) runs LIFO on
+// Policy`, and cleanup (`Safe.defer`, `Pipe.defer`, `Pipe.scoped`) runs LIFO on
 // every exit — success, fail, die and interrupt.
 //
 //   bun run examples/05-concurrency-and-cleanup.ts
@@ -48,10 +48,13 @@ const fetchFlaky = (id: string) => fetchDoc(id).pipe(Pipe.retry(flakyPolicy), Pi
 
 // A resource that always reports when it is released — and why.
 const open = (name: string) =>
-	Safe.call(() => {
-		console.log(`open ${name}`);
-		return name;
-	}).pipe(Pipe.acquireRelease((_r: string, exit) => console.log(`close ${name} (${exit._tag})`)));
+	Safe.defer(
+		Safe.call(() => {
+			console.log(`open ${name}`);
+			return name;
+		}),
+		(_r: string, exit) => console.log(`close ${name} (${exit._tag})`),
+	);
 
 const show = <A, E>(exit: Outcome<A, E>): string => {
 	if (exit._tag === "success") return `ok: ${JSON.stringify(exit.value)}`;
@@ -84,20 +87,18 @@ console.log("— allSettled keeps every outcome —");
 const partial = Safe.allSettled([fetchDoc("a"), fetchDoc("zzz"), fetchDoc("b")]);
 console.log(show(await Runtime.run(partial)));
 
-// 5. Cleanup assembles the same way: `scoped` + `ensuring` + `acquireRelease`
-// are pipe ops too, and `uninterruptible` masks a deadline for the critical
-// region while the parent still reports the abort.
+// 5. Cleanup assembles the same way: `Safe.defer` inside a `Safe.try` pairs
+// acquire with release at the body's boundary, and `Pipe.defer` appends a
+// per-Safe closing note that runs the moment that Safe settles.
 console.log("— cleanup composes in the same list —");
 const work = Safe.try(function* () {
 	yield* open("conn");
 	return yield* fetchDoc("a").pipe(Pipe.retry(flakyPolicy));
-}).pipe(
-	Pipe.ensuring(() => console.log("request ended")),
-	Pipe.scoped,
-);
+}).pipe(Pipe.defer(() => console.log("request ended")));
 console.log(show(await Runtime.run(work)));
 
-// 6. A timeout outside `scoped` interrupts mid-run; the scope still releases.
+// 6. A timeout outside `Safe.try` interrupts mid-run; the body's scope still
+// releases what was acquired inside.
 console.log("— interrupt still releases —");
 const slowWork = Safe.try(function* () {
 	yield* open("slow-conn");
@@ -105,5 +106,5 @@ const slowWork = Safe.try(function* () {
 		await s.sleep(500);
 		return "never";
 	});
-}).pipe(Pipe.scoped);
+});
 console.log(show(await Runtime.run(slowWork.pipe(Pipe.timeout(30)))));

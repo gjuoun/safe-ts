@@ -94,8 +94,10 @@ export const race = <const T extends readonly AnySafe[]>(
  * Run `safe`, then always run `cleanup` with its outcome — on success, failure,
  * defect and interrupt. A throwing cleanup turns a success into a defect and
  * leaves any other outcome as it was, the same rule `Scope.close` applies.
+ * The pipe twin of `Safe.defer`: that one registers on a scope for the block's
+ * end; this one is bound to a single Safe and fires the moment it settles.
  */
-const ensuring =
+const defer =
 	(cleanup: (exit: Outcome<unknown, unknown>) => void | PromiseLike<void>) =>
 	<A, E>(safe: Safe<A, E>): Safe<A, E> =>
 		new Safe<A, E>((ctx) => {
@@ -293,36 +295,6 @@ const scoped = <A, E>(safe: Safe<A, E>): Safe<A, E> =>
 	});
 
 /**
- * Acquire a resource and register its release on the current scope. The
- * acquire step is not interruptible, so an acquired resource is always
- * released. `release` gets the scope's outcome.
- */
-const acquireRelease =
-	(release: (resource: any, exit: Outcome<unknown, unknown>) => void | PromiseLike<void>) =>
-	<A, E>(acquire: Safe<A, E>): Safe<A, E> =>
-		new Safe<A, E>((ctx) => {
-			const exit = exec(acquire, {
-				...ctx,
-				signal: NEVER_ABORTED,
-				restoreSignal: ctx.signal,
-			});
-			return isThenable(exit)
-				? exit.then((e) => afterAcquire(e, ctx, release))
-				: afterAcquire(exit, ctx, release);
-		});
-
-/** Register the release once the resource exists; nothing runs on failure. */
-const afterAcquire = <A, E>(
-	exit: Outcome<A, E>,
-	ctx: Ctx,
-	release: (resource: A, exit: Outcome<unknown, unknown>) => void | PromiseLike<void>,
-): Outcome<A, E> => {
-	if (exit._tag !== "success") return exit;
-	ctx.scope.add((scopeOutcome) => release(exit.value, scopeOutcome));
-	return ctx.signal.aborted ? Outcome.interrupt() : exit;
-};
-
-/**
  * Run `safe` where no abort lands: the run's signal is masked for the whole
  * region, so a deadline cannot cut it. When the region exits, an abort that
  * was deferred is observed — the outcome becomes `interrupt` — and a defect
@@ -349,15 +321,13 @@ const interruptible = <A, E>(safe: Safe<A, E>): Safe<A, E> =>
 /**
  * The pipe ops: every `Safe → Safe` the library ships, in one namespace. They
  * assemble inside `Safe.pipe` / `.pipe` — `Pipe.timeout`, `Pipe.retry`,
- * `Pipe.ensuring`, `Pipe.scoped`, `Pipe.acquireRelease`, `Pipe.uninterruptible`,
- * `Pipe.interruptible` — and `Pipe.provide` for the services side.
+ * `Pipe.defer`, `Pipe.scoped`, `Pipe.uninterruptible`, `Pipe.interruptible`.
  */
 export const ops = {
 	timeout,
 	retry,
-	ensuring,
+	defer,
 	scoped,
-	acquireRelease,
 	uninterruptible,
 	interruptible,
 } as const;

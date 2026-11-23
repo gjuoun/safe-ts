@@ -1,48 +1,70 @@
 # 5 · 一定会执行的清理
 
-`acquireRelease` 把资源和它的释放配对。释放会在**每一种**退出方式下执行：成功、
-失败、缺陷、中断。它是一个 `Safe → Safe` 工厂 —— 和其他包装器一样，在 `pipe` 里
-包住一个 Safe。
+`Safe.defer` 是唯一的清理原语。它登记到所在的 scope —— 每个 `Safe.try` 都自带
+一个 —— 清理在**每一种**退出方式下执行：成功、失败、缺陷、中断。
 
 ```ts
-import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
-
-const openDb = () =>
-  Safe.call(() => ({ open: true })).pipe(
-    Pipe.acquireRelease((_db: { open: boolean }, exit) =>
-      console.log(`release after ${exit._tag}`),
-    ),
-  );
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const program = Safe.try(function* () {
-  const db = yield* openDb();
+  const conn = yield* Safe.defer(
+    Safe.call(() => ({ open: true })),
+    (_db, exit) => console.log(`release after ${exit._tag}`),
+  );
   return yield* Safe.err("boom" as const);
 });
 
-console.log((await Runtime.run(program))._tag); // 先 release after fail，再 "fail"
+console.log((await Runtime.run(program))._tag);
+// 先 release after fail，再 "fail"
 ```
 
-`scoped` 给这段工作一个自己的作用域，它一退出就关闭 —— 它是组合子常量，pipe 时
-不需要括号：
+两个参数的形态把 acquire 不可中断地跑完，然后把资源和它的释放原子配对 ——
+要么资源根本没被拿到，要么拿到且释放已登记。清理在 body 的 scope 关闭时
+结算：`using` 块的边界。
+
+## `Safe.defer(fn)`：没有资源的清理
 
 ```ts
-import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
-const work = Safe.try(function* () {
-  yield* Safe.ok("conn").pipe(Pipe.acquireRelease(() => console.log("closed")));
-  return "done";
-}).pipe(Pipe.scoped);
-
-console.log(await Runtime.run(work)); // 先 closed，再 success
-```
-
-## `ensuring`：没有资源的清理
-
-```ts
-import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
-
-const timed = Safe.ok(1).pipe(Pipe.ensuring((exit) => console.log(`always: ${exit._tag}`)));
+const timed = Safe.try(function* () {
+  yield* Safe.defer((exit) => console.log(`always: ${exit._tag}`));
+  return yield* Safe.ok(1);
+});
 console.log(await Runtime.run(timed)); // 先 always: success，再 success
+```
+
+## `Pipe.defer`：绑在单个 Safe 上的清理
+
+pipe 版本挂在单个 Safe 上，它一出结果立刻触发 —— 不涉及 scope，也不需要
+`try`：
+
+```ts
+import { Pipe, type Safe } from "@gjuoun/safe-ts";
+
+declare const fetchUser: (id: string) => Safe<{ id: string }, never>;
+declare const metrics: { end(tag: string): void };
+
+const work = fetchUser("u1").pipe(
+  Pipe.defer((exit) => metrics.end(exit._tag)),
+);
+```
+
+## `Pipe.scoped`：跨 `try` 的共享窗口
+
+`Safe.try` 已经给自己的 `defer` 提供了作用域。只有当多个 `Safe.try` 里的
+资源要共享同一个生命周期时才需要 `Pipe.scoped`：
+
+```ts
+import { Pipe, Safe } from "@gjuoun/safe-ts";
+
+declare const openA: () => Safe<{ close(): void }, never>;
+declare const inner: () => Safe<number, never>;
+
+const shared = Safe.try(function* () {
+  const a = yield* Safe.defer(openA(), c => c.close());
+  yield* inner();   // inner 的 defer 已结；a 还活着
+}).pipe(Pipe.scoped);
 ```
 
 ## 规则
@@ -54,17 +76,17 @@ console.log(await Runtime.run(timed)); // 先 always: success，再 success
 
 `s.onCancel(fn)` 不同：它只在**取消进行中的操作**时运行，例如调用数据库客户端的
 `cancel()`；正常成功或失败时不会运行，而且回调是同步的。每一种退出方式都要做的
-清理请使用 `ensuring` 或 `acquireRelease`。详见
+清理请使用 `Safe.defer` 或 `Pipe.defer`。详见
 [Scheduler 与取消](./08-scheduler.md)。
 
 ```ts
-import { Pipe, Runtime, Safe } from "@gjuoun/safe-ts";
+import { Runtime, Safe } from "@gjuoun/safe-ts";
 
 const slow = Safe.try(function* () {
-  yield* Safe.ok("conn").pipe(Pipe.acquireRelease(() => console.log("closed")));
+  yield* Safe.defer(Safe.ok("conn"), () => console.log("closed"));
   yield* Safe.delay(500);
   return "never";
-}).pipe(Pipe.scoped);
+});
 
 const exit = await Runtime.run(slow, { signal: AbortSignal.timeout(10) });
 console.log(exit._tag); // "interrupt"，而且 "closed" 已经打印
