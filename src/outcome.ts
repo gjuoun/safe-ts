@@ -1,20 +1,9 @@
-// outcome.ts — how a Safe ended.
-//
-// One flat union with four arms, so `run` reports every way work can stop
-// without nesting two types:
-//   success   — it worked
-//   fail      — a typed, expected error (the E channel)
-//   die       — a defect: something threw that nobody declared
-//   interrupt — the run's AbortSignal fired
-// Outcomes are plain data, so they compare with `toEqual` and log as JSON.
-
 export type Outcome<A, E> =
 	| { readonly _tag: "success"; readonly value: A }
 	| { readonly _tag: "fail"; readonly error: E }
 	| { readonly _tag: "die"; readonly defect: unknown }
 	| { readonly _tag: "interrupt" };
 
-/** A promise-like, without assuming a `Promise` instance. */
 export const isThenable = (value: unknown): value is PromiseLike<unknown> =>
 	value !== null &&
 	(typeof value === "object" || typeof value === "function") &&

@@ -1,5 +1,3 @@
-// The safe-ts lane: fourteen scenarios, each built per call (the like-for-like
-// model — Effect's gen is lazy too, so both lanes pay construction).
 import { Errors, Pipe, Runtime, Safe } from "../../src/index.ts";
 
 const e = Errors.define({

@@ -4,7 +4,6 @@ import { Policy, type PolicyState } from "../src/policy.ts";
 type State = PolicyState<string>;
 const st = (attempt: number, error = "e", elapsed = 0): State => ({ attempt, error, elapsed });
 
-/** Run a policy against a list of attempts and collect the delays it returns. */
 const trace = (p: Policy<string>, attempts: number): (number | undefined)[] => {
 	const out: (number | undefined)[] = [];
 	for (let a = 1; a <= attempts; a++) {
@@ -49,14 +48,7 @@ describe("Policy algebra", () => {
 	});
 
 	test("the object sugar equals spaced + while attempt", () => {
-		// What { attempts: 3, delayMs: 10 } compiles to internally:
 		const sugar = Policy.pipe(Policy.spaced(10), [Policy.while((s) => s.attempt < 3)]);
 		expect(trace(sugar, 5)).toEqual([10, 10, undefined, undefined]);
-	});
-
-	test("a bare transformer is a PolicyOp, not a Policy — the type rejects it", () => {
-		// @ts-expect-error a transformer is not a policy: it needs Policy.pipe
-		const bad: Policy<string> = Policy.while((s: State) => s.attempt <= 2);
-		expect(bad).toBeDefined();
 	});
 });

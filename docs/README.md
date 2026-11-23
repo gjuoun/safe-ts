@@ -13,6 +13,7 @@ A tutorial in eight chapters, in two languages, both compiled by `bun run docs:c
 | 6 | [Concurrency, timeouts, retries, cancellation](./en/06-concurrency.md) | [并发、超时、重试、取消](./zh/06-concurrency.md) |
 | 7 | [Performance, and where this fits](./en/07-performance.md) | [性能，以及适合的场景](./zh/07-performance.md) |
 | 8 | [Scheduler and cancellation: practical guide](./en/08-scheduler.md) | [Scheduler 与取消：实用指南](./zh/08-scheduler.md) |
+| 9 | [Internals: the semantics the code used to carry in comments](./en/09-internals.md) | [内部实现：原本写在代码注释里的语义](./zh/09-internals.md) |
 
 - [English index](./en/README.md) · [中文目录](./zh/README.md)
 - Reference: [README](../README.md) · Examples: [`examples/`](../examples) · Benchmarks: [`benchmark/`](../benchmark)

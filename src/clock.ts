@@ -1,31 +1,15 @@
-// clock.ts — where the time comes from.
-//
-// `Clock` is two functions: `now` and `sleep`. Every timer in the library —
-// `Safe.delay`, `Scheduler.sleep`, `timeout`'s deadline, `retry`'s wait — goes
-// through the run's `Clock`, so `Clocks.manual()` virtualises all of them for
-// tests. `clock.sleep` rejects with the signal's reason when it aborts, exactly
-// like the old `wait`, so an abort during a wait is an interrupt upstream.
-/** Time source: read `now` and sleep for `ms` unless the signal aborts. */
 export interface Clock {
-	/** Milliseconds since this clock's epoch. */
 	now(): number;
-	/** Resolve after `ms`; reject with `signal.reason` if the signal aborts first. */
+
 	sleep(ms: number, signal: AbortSignal): Promise<void>;
 }
 
-/** A wait queue entry for the manual clock. */
 interface Waiter {
 	readonly at: number;
 	readonly drop: () => void;
 	readonly resolve: () => void;
 }
 
-/**
- * The two clocks. `Clocks.real` is the platform's `Date.now` + `setTimeout`;
- * `Clocks.manual()` returns `{ clock, advance, now }` whose `advance` fires
- * every wait scheduled at or before the new time, in order — sleeps then
- * resolve on the microtask queue, so a test awaits a tick to see them.
- */
 export const Clocks = {
 	real: {
 		now: () => Date.now(),

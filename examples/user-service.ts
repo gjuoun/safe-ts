@@ -1,11 +1,3 @@
-// examples/user-service.ts — everything end to end.
-//
-// Config → Db → UserRepo, as plain classes wired by constructor at the top of
-// the file — no container, no layer. Three requests: a found user, a
-// not_found recovered with catchTag, and one cancelled by its signal through
-// `Scheduler.onCancel`. Closing the database is the last line.
-//
-//   bun run examples/user-service.ts
 import {
 	Errors,
 	type ErrorsOf,
@@ -16,14 +8,10 @@ import {
 	type Scheduler,
 } from "../src/index.ts";
 
-// --- Errors ---
-
 const userError = Errors.define({
 	not_found: (id: string) => ({ message: `no user with id ${id}`, id }),
 });
 type UserError = ErrorsOf<typeof userError>;
-
-// --- Wiring ---
 
 interface User {
 	readonly id: string;
@@ -38,7 +26,6 @@ class Db {
 	constructor(private readonly config: Config) {}
 	get(id: string, scheduler: Scheduler): Promise<string | undefined> {
 		return new Promise((resolve) => {
-			// Slow ids simulate a query that outlives its request.
 			const timer = setTimeout(() => resolve(this.config.users[id]), id === "slow" ? 1000 : 1);
 			scheduler.onCancel(() => clearTimeout(timer));
 		});
@@ -59,8 +46,6 @@ class UserRepo {
 		});
 	}
 }
-
-// --- Program ---
 
 const config = new Config({ u1: "ada" });
 const db = new Db(config);

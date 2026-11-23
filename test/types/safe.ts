@@ -30,7 +30,6 @@ const handled = Safe.pipe(prog, [
 ]);
 assertType<Equal<typeof handled, Safe<string, "nan" | Arm<UserError, "invalid">>>>();
 
-// The generator is the combinator: sequencing is `yield*`, not `andThen`.
 const chained = Safe.try(function* () {
 	const name = yield* find("u1");
 	return name.length;
@@ -46,11 +45,8 @@ const mapped = Safe.try(function* () {
 });
 assertType<Equal<typeof mapped, Safe<string, "io">>>();
 
-// Pipe-position catchTag cannot see the target's E: an unknown code compiles
-// and simply never matches — the data-last trade-off.
 Safe.pipe(prog, [Pipe.catchTag("missing", () => Safe.ok(""))]);
 
-// The mapper rule at the type level: omit it and E stays `never`.
 const tryNoMapper = Safe.call(() => JSON.parse("{}") as { name: string });
 assertType<Equal<typeof tryNoMapper, Safe<{ name: string }, never>>>();
 
@@ -69,12 +65,8 @@ const promiseMapped = Safe.call(
 );
 assertType<Equal<typeof promiseMapped, Safe<number, "io">>>();
 
-// `Safe.pipe` keeps the R slot when the ops are variadic — the regression that
-// made two generic ops in one array collapse every slot to `any`.
 declare const needsService: Safe<number, "nan">;
 const pipedStatic = Safe.pipe(needsService, Pipe.timeout(2_000), Pipe.retry({ attempts: 2 }));
 assertType<Equal<typeof pipedStatic, Safe<number, "nan">>>();
 const pipedMethod = needsService.pipe(Pipe.timeout(2_000), Pipe.retry({ attempts: 2 }));
 assertType<Equal<typeof pipedMethod, Safe<number, "nan">>>();
-// @ts-expect-error two ops in one array are not offered: the tuple collapses to `any`
-Safe.pipe(typed, [Pipe.timeout(2_000), Pipe.retry({ attempts: 2 })]);

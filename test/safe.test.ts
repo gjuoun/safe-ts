@@ -40,7 +40,6 @@ describe("Safe constructors", () => {
 
 	test("call refuses a generator function and names Safe.try", async () => {
 		const exit = await run(
-			// A generator function belongs to Safe.try, not Safe.call.
 			Safe.call(function* () {
 				yield* Safe.ok(1);
 				return 2;

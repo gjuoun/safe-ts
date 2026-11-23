@@ -1,9 +1,3 @@
-// combinators.ts — the scheduling combinators, as `Safe → Safe` factories.
-//
-// One entry: `Safe.pipe(safe, timeout(2_000), retry(policy))` folds these
-// factories left to right. None of them needs a fiber loop: each is `exec`
-// plus a signal, a timer or a lane. fork/join is the one that does need a
-// loop, and it stays out.
 import { type AllA, type AllE, all } from "./all.ts";
 import { isThenable, Outcome } from "./outcome.ts";
 import { Policy } from "./policy.ts";
@@ -12,10 +6,8 @@ import { Scope } from "./scope.ts";
 
 type AnySafe = Safe<any, any>;
 
-/** The reason a timeout aborts with, so it is not confused with a caller abort. */
 export const TIMEOUT = Symbol("safe-ts.timeout");
 
-/** Wait `ms` on the run's clock; an abort during the wait is an interrupt. */
 export const delay = (ms: number): Safe<void, never> =>
 	new Safe<void, never>((ctx) => {
 		if (ctx.signal.aborted) return Outcome.interrupt();
@@ -27,16 +19,9 @@ export const delay = (ms: number): Safe<void, never> =>
 	});
 
 export interface RaceOptions {
-	/** Await every loser after the winner settles, so "returned" means "stopped". */
 	readonly awaitLosers?: boolean;
 }
 
-/**
- * Run every Safe and keep the first to settle — success, failure or defect. The
- * losers are aborted through a local controller the way `Safe.all` aborts its
- * siblings, so a loser that ignores its signal still runs to completion unless
- * `awaitLosers` asks the winner to wait for it.
- */
 export const race = <const T extends readonly AnySafe[]>(
 	safes: T,
 	options: RaceOptions = {},
@@ -50,18 +35,15 @@ export const race = <const T extends readonly AnySafe[]>(
 			...ctx,
 			signal:
 				ctx.signal === NEVER_ABORTED ? local.signal : AbortSignal.any([ctx.signal, local.signal]),
-			// awaitLosers: a loser's interrupt lands when its body settles, so
-			// `pending` resolves at the work's real end, not at the abort.
+
 			deferInterrupt: options.awaitLosers === true,
 		};
 		const pending: Promise<Outcome<unknown, unknown>>[] = [];
 		for (const safe of safes) {
 			const out = exec(safe as AnySafe, child);
 			if (!isThenable(out)) {
-				// A synchronous child settled on this tick: it won, nothing else starts.
 				local.abort();
 				if (options.awaitLosers === true && pending.length > 0) {
-					// The losers still in flight are awaited to their real end.
 					return Promise.all(pending).then(() => out as Outcome<AllA<T>[number], AllE<T>>);
 				}
 				return out as Outcome<AllA<T>[number], AllE<T>>;
@@ -75,7 +57,6 @@ export const race = <const T extends readonly AnySafe[]>(
 				settled = true;
 				local.abort();
 				if (options.awaitLosers === true) {
-					// exec's promises never reject: every loser lands as an Outcome.
 					Promise.all(pending).then(() => resolve(outcome));
 				} else {
 					resolve(outcome);
@@ -90,13 +71,6 @@ export const race = <const T extends readonly AnySafe[]>(
 		});
 	});
 
-/**
- * Run `safe`, then always run `cleanup` with its outcome — on success, failure,
- * defect and interrupt. A throwing cleanup turns a success into a defect and
- * leaves any other outcome as it was, the same rule `Scope.close` applies.
- * The pipe twin of `Safe.defer`: that one registers on a scope for the block's
- * end; this one is bound to a single Safe and fires the moment it settles.
- */
 const defer =
 	(cleanup: (exit: Outcome<unknown, unknown>) => void | PromiseLike<void>) =>
 	<A, E>(safe: Safe<A, E>): Safe<A, E> =>
@@ -121,17 +95,9 @@ const defer =
 			return isThenable(exit) ? exit.then(runCleanup) : runCleanup(exit);
 		});
 
-/**
- * Bound `safe` to `ms`. A timeout arrives as `interrupt` — the same arm a run
- * boundary abort produces — unless `onTimeout` is given, which turns it into a
- * typed failure instead. The deadline waits on the run's clock, so
- * `Clocks.manual()` virtualises it.
- */
 function timeout(ms: number): <A, E>(safe: Safe<A, E>) => Safe<A, E>;
 function timeout<E2>(ms: number, onTimeout: () => E2): <A, E>(safe: Safe<A, E>) => Safe<A, E | E2>;
 function timeout(ms: number, onTimeout?: () => unknown) {
-	// The generics live on the returned arrow — `timeout(10)` is still a
-	// generic `Safe → Safe`, so `pipe` can instantiate it per call site.
 	return <A, E>(safe: Safe<A, E>): Safe<A, E> =>
 		new Safe<A, E>((ctx) => {
 			const controller = new AbortController();
@@ -157,21 +123,11 @@ function timeout(ms: number, onTimeout?: () => unknown) {
 }
 
 export interface RetryOptions {
-	/** Total attempts, including the first. `1` means no retry. */
 	readonly attempts: number;
-	/** Fixed pause between attempts, in ms. Omit for an immediate retry. */
+
 	readonly delayMs?: number;
 }
 
-/**
- * Run `safe` again when it fails, deciding per attempt with a `Policy` — a
- * `(state) => ms | undefined` value assembled from `Policy.*` — or the
- * `{ attempts, delayMs }` sugar, which is `Policy.pipe(Policy.spaced(delayMs),
- * Policy.while(s => s.attempt < attempts))`. Only a typed `fail` is retried: a
- * defect is a bug, and an interrupt means someone asked to stop. Each attempt
- * gets its own scope, so resources acquired by a failed attempt are released
- * before the next one starts. The wait runs on the run's clock.
- */
 const retry =
 	<Err = any>(options: RetryOptions | Policy<Err>) =>
 	<A, E>(safe: Safe<A, E>): Safe<A, E> =>
@@ -218,18 +174,9 @@ const retry =
 		});
 
 export interface ForEachOptions {
-	/** How many children may run at once. Defaults to all of them. */
 	readonly concurrency?: number;
 }
 
-/**
- * Map over `items` and run the resulting Safes, keeping input order. At
- * `concurrency: n` a sliding window keeps n lanes in flight — a lane starts
- * the next item as soon as it finishes, so a slow item no longer blocks the
- * batch behind it. The first non-success outcome aborts the siblings and
- * becomes the result; with no limit it is `Safe.all`, which also holds the
- * synchronous fast path.
- */
 export const forEach = <A, B, E>(
 	items: readonly A[],
 	f: (item: A, index: number) => Safe<B, E>,
@@ -259,8 +206,7 @@ export const forEach = <A, B, E>(
 				local.abort();
 			}
 		};
-		// One lane pulls items until the cursor is spent or a sibling stopped. A
-		// lane never rejects: `exec` settles every exit as an Outcome.
+
 		const lane = async (): Promise<void> => {
 			while (first === undefined) {
 				const i = next;
@@ -286,7 +232,6 @@ export const forEach = <A, B, E>(
 		return Promise.all(lanes).then(() => first ?? Outcome.succeed(results));
 	});
 
-/** Run `safe` in a fresh scope; its finalizers run (LIFO) as soon as it exits. */
 const scoped = <A, E>(safe: Safe<A, E>): Safe<A, E> =>
 	new Safe<A, E>((ctx) => {
 		const scope = new Scope();
@@ -294,12 +239,6 @@ const scoped = <A, E>(safe: Safe<A, E>): Safe<A, E> =>
 		return isThenable(exit) ? exit.then((e) => scope.close(e)) : scope.close(exit);
 	});
 
-/**
- * Run `safe` where no abort lands: the run's signal is masked for the whole
- * region, so a deadline cannot cut it. When the region exits, an abort that
- * was deferred is observed — the outcome becomes `interrupt` — and a defect
- * stays a defect.
- */
 const uninterruptible = <A, E>(safe: Safe<A, E>): Safe<A, E> =>
 	new Safe<A, E>((ctx) => {
 		const exit = exec(safe, { ...ctx, signal: NEVER_ABORTED, restoreSignal: ctx.signal });
@@ -308,21 +247,12 @@ const uninterruptible = <A, E>(safe: Safe<A, E>): Safe<A, E> =>
 		return isThenable(exit) ? exit.then(recheck) : recheck(exit);
 	});
 
-/**
- * Undo a surrounding `uninterruptible` mask for this region. Outside a mask it
- * changes nothing: a signal that is not `NEVER_ABORTED` is restored to itself.
- */
 const interruptible = <A, E>(safe: Safe<A, E>): Safe<A, E> =>
 	new Safe<A, E>((ctx) => {
 		if (ctx.signal !== NEVER_ABORTED) return exec(safe, ctx);
 		return exec(safe, { ...ctx, signal: ctx.restoreSignal });
 	});
 
-/**
- * The pipe ops: every `Safe → Safe` the library ships, in one namespace. They
- * assemble inside `Safe.pipe` / `.pipe` — `Pipe.timeout`, `Pipe.retry`,
- * `Pipe.defer`, `Pipe.scoped`, `Pipe.uninterruptible`, `Pipe.interruptible`.
- */
 export const ops = {
 	timeout,
 	retry,

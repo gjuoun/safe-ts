@@ -89,7 +89,6 @@ describe("Safe.race", () => {
 	test("awaitLosers returns only after the loser settles", async () => {
 		const log: string[] = [];
 		const loser = Safe.call(async () => {
-			// Ignores the run's signal on purpose: it settles, not interrupts.
 			await new Promise((r) => setTimeout(r, 30));
 			log.push("loser-settled");
 			return "loser";
@@ -290,8 +289,6 @@ describe("Safe.forEach", () => {
 	});
 
 	test("the window slides: a slow item does not hold back the batch behind it", async () => {
-		// [10, 200] pairs at k=2: three waves of ~200 ms if batched (~600 ms),
-		// ~400+ if the window slides — a fast item frees its lane immediately.
 		const work = (n: number) => Safe.call((s) => s.sleep(n).then(() => n));
 		const started = Date.now();
 		const exit = await run(Safe.forEach([10, 200, 10, 200, 10, 200], work, { concurrency: 2 }));
@@ -340,7 +337,6 @@ describe("Safe.allSettled", () => {
 
 describe("Safe.pipe", () => {
 	test("folds factories left to right", async () => {
-		// timeout bounds the whole retry loop: one attempt, then interrupt.
 		let attempts = 0;
 		const always = Safe.call(
 			() => {
@@ -374,7 +370,7 @@ describe("Safe.pipe", () => {
 				);
 		const exit = await run(Safe.pipe(Safe.ok(1), tag("first"), tag("second")));
 		expect(exit).toEqual(Outcome.succeed(1));
-		// Defer order follows wrap order: second's cleanup runs first.
+
 		expect(seen).toEqual(["first", "second"]);
 	});
 });

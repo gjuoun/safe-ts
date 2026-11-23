@@ -1,11 +1,3 @@
-// examples/02-safe-try.ts — `Safe.try`: sequenced steps over a lazy `Safe`.
-//
-// `Safe.try` describes work; nothing runs until `run`, and each `run` runs the
-// body again. Inside the body `yield*` unwraps a Safe — a failure stops the
-// body there — and `return value` succeeds. A body that stops early still runs
-// its `finally` blocks (neverthrow #696).
-//
-//   bun run examples/02-safe-try.ts
 import { readFile, writeFile } from "node:fs/promises";
 import { type Outcome, Runtime, Safe } from "../src/index.ts";
 
@@ -13,30 +5,27 @@ interface Config {
 	name: string;
 }
 
-// The boundary: a throwing call becomes a typed failure.
 const parseJson = (text: string) =>
 	Safe.call(
 		() => JSON.parse(text) as Config,
 		(): "bad_json" => "bad_json",
 	);
 
-// A sync body can still yield async Safes — `yield*` is the sequencing, not `await`.
 const readConfig = (text: string) =>
 	Safe.try(function* () {
-		const config = yield* parseJson(text); // Safe<Config, "bad_json">
-		if (!config.name) return yield* Safe.err("missing_name"); // an early failure
+		const config = yield* parseJson(text);
+		if (!config.name) return yield* Safe.err("missing_name");
 		return config;
-	}); // Safe<Config, "bad_json" | "missing_name">
+	});
 
 const loadConfig = (path: string) =>
 	Safe.try(function* () {
-		// The async boundary: a rejection becomes a typed failure.
 		const text = yield* Safe.call(
 			() => readFile(path, "utf8"),
 			(): "unreadable" => "unreadable",
 		);
 		return yield* readConfig(text);
-	}); // Safe<Config, "unreadable" | "bad_json" | "missing_name">
+	});
 
 const show = <A, E>(exit: Outcome<A, E>): string => {
 	switch (exit._tag) {
@@ -55,16 +44,14 @@ await writeFile("/tmp/safe-ts-config.json", JSON.stringify({ name: "demo" }));
 console.log(show(await Runtime.run(loadConfig("/tmp/safe-ts-config.json"))));
 console.log(show(await Runtime.run(loadConfig("/tmp/safe-ts-missing.json"))));
 
-// Lazy: build once, and every `run` runs the body again.
 let runs = 0;
 const counted = Safe.try(function* () {
 	runs += 1;
-	yield* Safe.ok(undefined); // a yieldable step
+	yield* Safe.ok(undefined);
 	return runs;
 });
 console.log(`${show(await Runtime.run(counted))} then ${show(await Runtime.run(counted))}`);
 
-// A failed `yield*` closes the generator — `finally` still runs.
 const cleanup = Safe.try(function* () {
 	try {
 		return yield* Safe.err("stopped");

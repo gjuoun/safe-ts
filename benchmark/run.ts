@@ -1,11 +1,3 @@
-// safe-ts vs Effect — parity first, then five trials per scenario.
-//
-// Both lanes build the program per call: safe-ts's Safe.try and Effect's gen are
-// both lazy, so this is the like-for-like model. A "win" is reported only when the
-// two lanes' [min-max] ranges do not overlap; overlapping ranges are called noise.
-//
-//   bun run bench            (TRIALS=5 N=20000 by default)
-//   TRIALS=3 N=50000 bun run bench
 import * as ef from "./lanes/effect.ts";
 import * as st from "./lanes/safe.ts";
 
@@ -19,11 +11,9 @@ const N = Number(process.env.N ?? 20000);
 const ROUNDS = 3;
 
 const SCENARIOS = st.names;
-// These sleep on a real timer, so the wall clock measures the sleep, not the library.
-// They still pass the parity check above; they are not timed.
+
 const UNTIMED = new Set(["timeoutBound", "delayWait"]);
 
-// 1) parity — every lane must print the same string before anything is timed
 let mismatches = 0;
 for (const name of SCENARIOS) {
 	const safe = st.show((await st.run(name)) as never);
@@ -40,7 +30,6 @@ if (mismatches > 0) {
 	process.exit(1);
 }
 
-// 2) timing
 const measure = async (fn: () => unknown) => {
 	const step = async () => {
 		const v = fn();

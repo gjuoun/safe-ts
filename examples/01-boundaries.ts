@@ -1,11 +1,3 @@
-// examples/01-boundaries.ts — one boundary, one rule.
-//
-// Everything that can throw enters the library through `Safe.call`, sync or
-// async. The rule is the same for both: declare a mapper and the throw becomes
-// a typed `fail`; omit it and the throw is a `die` — a defect, not something
-// you declared. The callback gets a `Scheduler`, which owns cancellation.
-//
-//   bun run examples/01-boundaries.ts
 import { type Outcome, Runtime, Safe } from "../src/index.ts";
 
 const show = <A, E>(exit: Outcome<A, E>): string => {
@@ -21,7 +13,6 @@ const show = <A, E>(exit: Outcome<A, E>): string => {
 	}
 };
 
-// A mapper makes the throw a typed error: the bad case rides the error channel.
 const parseJson = (text: string) =>
 	Safe.call(
 		() => JSON.parse(text) as { name?: string },
@@ -31,10 +22,8 @@ const parseJson = (text: string) =>
 console.log(show(await Runtime.run(parseJson('{"name":"demo"}'))));
 console.log(show(await Runtime.run(parseJson("{"))));
 
-// The same call with no mapper: the throw is a defect, not a typed error.
 console.log(show(await Runtime.run(Safe.call(() => JSON.parse("{")))));
 
-// A promise that rejects, mapped and unmapped.
 const failing = (): Promise<string> => Promise.reject(new Error("ECONNREFUSED"));
 
 console.log(
@@ -42,8 +31,6 @@ console.log(
 );
 console.log(show(await Runtime.run(Safe.call(failing))));
 
-// `Scheduler.sleep` is cancelled by the run's signal — there is no listener to
-// wire by hand, and none to forget.
 console.log(
 	show(
 		await Runtime.run(
