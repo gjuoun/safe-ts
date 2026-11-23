@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
+import pkg from "../package.json" with { type: "json" };
 import * as safe from "../src/index.ts";
 
 test("entry exports the namespaces and the pipe ops", () => {
-	expect(safe.VERSION).toBe("0.1.0");
+	expect(safe.VERSION).toBe(pkg.version);
 	for (const name of ["Outcome", "Runtime", "Safe", "Errors", "Policy", "Clocks"]) {
 		expect(name in safe).toBe(true);
 	}

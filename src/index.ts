@@ -1,8 +1,9 @@
+import pkg from "../package.json" with { type: "json" };
 import { ops } from "./combinators.ts";
 import { defineErrors, renderError } from "./errors.ts";
 import { catchTag } from "./safe.ts";
 
-export const VERSION = "0.1.0";
+export const VERSION: string = pkg.version;
 
 export const Errors = { define: defineErrors, render: renderError };
 
